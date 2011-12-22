@@ -1,0 +1,12 @@
+{application, wterl,
+ [
+  {description, "Erlang Wrapper for WiredTiger"},
+  {vsn, "0.9.0"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, [
+        ]}
+ ]}.
