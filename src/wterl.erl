@@ -23,10 +23,16 @@
 
 
 -export([conn_open/2,
+         conn_close/1,
          session_new/1,
-         session_get/2,
-         session_put/3,
-         session_delete/2,
+         session_get/3,
+         session_put/4,
+         session_delete/3,
+         session_close/1,
+         table_create/2,
+         table_create/3,
+         table_drop/2,
+         table_drop/3,
          config_to_bin/2]).
 
 -on_load(init/0).
@@ -53,18 +59,35 @@ init() ->
 conn_open(_HomeDir, _Config) ->
     ?nif_stub.
 
+conn_close(_ConnRef) ->
+    ?nif_stub.
+
 session_new(_ConnRef) ->
     ?nif_stub.
 
-session_get(_Ref, _Key) ->
+session_get(_Ref, _Table, _Key) ->
     ?nif_stub.
 
-session_put(_Ref, _Key, _Value) ->
+session_put(_Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
-session_delete(_Ref, _Key) ->
+session_delete(_Ref, _Table, _Key) ->
     ?nif_stub.
 
+session_close(_Ref) ->
+    ?nif_stub.
+
+table_create(Ref, Name) ->
+    table_create(Ref, Name, "").
+
+table_create(_Ref, _Name, _Config) ->
+    ?nif_stub.
+
+table_drop(Ref, Name) ->
+    table_drop(Ref, Name, "").
+
+table_drop(_Ref, _Name, _Config) ->
+    ?nif_stub.
 
 %%
 %% Configuration type information.
@@ -132,6 +155,13 @@ basic_test() ->
     Opts = [{create, true}],
     ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
     {ok, ConnRef} = conn_open("/tmp/wterl.basic", config_to_bin(Opts, [])),
-    {ok, SRef} = session_new(ConnRef).
+    {ok, SRef} = session_new(ConnRef),
+    {ok, Table} = table_create(SRef, "table:test"),
+    ok = session_put(SRef, Table, <<"a">>, <<"apple">>),
+    {ok, <<"apple">>} = session_get(SRef, Table, <<"a">>),
+    ok = session_delete(SRef, Table, <<"a">>),
+    {error, not_found} = session_get(SRef, Table, <<"a">>),
+    ok = session_close(SRef),
+    ok = conn_close(ConnRef).
 
 -endif.
