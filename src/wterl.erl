@@ -33,6 +33,8 @@
          table_create/3,
          table_drop/2,
          table_drop/3,
+         cursor_create/2,
+         cursor_close/1,
          config_to_bin/2]).
 
 -on_load(init/0).
@@ -87,6 +89,12 @@ table_drop(Ref, Name) ->
     table_drop(Ref, Name, "").
 
 table_drop(_Ref, _Name, _Config) ->
+    ?nif_stub.
+
+cursor_create(_Ref, _Table) ->
+    ?nif_stub.
+
+cursor_close(_Cursor) ->
     ?nif_stub.
 
 %%
