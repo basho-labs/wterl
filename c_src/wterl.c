@@ -62,9 +62,15 @@ static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF
 static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_table_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_table_drop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int next);
+static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_prev(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_search(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_search_near(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near);
+static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
 static ErlNifFunc nif_funcs[] =
 {
@@ -77,9 +83,13 @@ static ErlNifFunc nif_funcs[] =
     {"session_close", 1, wterl_session_close},
     {"table_create", 3, wterl_table_create},
     {"table_drop", 3, wterl_table_drop},
-    {"cursor_open", 2, wterl_cursor_open},
-    {"cursor_next", 1, wterl_cursor_next},
     {"cursor_close", 1, wterl_cursor_close},
+    {"cursor_next", 1, wterl_cursor_next},
+    {"cursor_open", 2, wterl_cursor_open},
+    {"cursor_prev", 1, wterl_cursor_prev},
+    {"cursor_reset", 1, wterl_cursor_reset},
+    {"cursor_search", 2, wterl_cursor_search},
+    {"cursor_search_near", 2, wterl_cursor_search_near},
 };
 
 
@@ -188,7 +198,7 @@ static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TE
             {
                 WT_ITEM raw_value;
                 rc = cursor->get_value(cursor, &raw_value);
-                cursor->close(cursor, NULL);
+                cursor->close(cursor);
                 if (rc != 0)
                 {
                     return enif_make_tuple2(env, ATOM_ERROR,
@@ -202,7 +212,7 @@ static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TE
             }
             else
             {
-                cursor->close(cursor, NULL);
+                cursor->close(cursor);
                 if (rc == WT_NOTFOUND)
                 {
                     return enif_make_tuple2(env, ATOM_ERROR, enif_make_atom(env, "not_found"));
@@ -246,7 +256,7 @@ static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TE
             raw_value.size = value.size;
             cursor->set_value(cursor, &raw_value);
             rc = cursor->insert(cursor);
-            cursor->close(cursor, NULL);
+            cursor->close(cursor);
             if (rc != 0)
             {
                 return enif_make_tuple2(env, ATOM_ERROR,
@@ -283,7 +293,7 @@ static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF
             raw_key.size = key.size;
             cursor->set_key(cursor, &raw_key);
             rc = cursor->remove(cursor);
-            cursor->close(cursor, NULL);
+            cursor->close(cursor);
             if (rc != 0)
             {
                 return enif_make_tuple2(env, ATOM_ERROR,
@@ -326,16 +336,13 @@ static ERL_NIF_TERM wterl_table_create(ErlNifEnv* env, int argc, const ERL_NIF_T
             enif_get_string(env, argv[2], config, sizeof config, ERL_NIF_LATIN1))
         {
             int rc = session->create(session, table, config);
-            if (rc == 0)
-            {
-                return enif_make_tuple2(env, ATOM_OK, enif_make_string(env, table, ERL_NIF_LATIN1));
-            }
-            else
+            if (rc != 0)
             {
                 return enif_make_tuple2(env, ATOM_ERROR,
                                         enif_make_string(env, wiredtiger_strerror(rc),
                                                          ERL_NIF_LATIN1));
             }
+	    return ATOM_OK;
         }
     }
     return enif_make_badarg(env);
@@ -353,17 +360,13 @@ static ERL_NIF_TERM wterl_table_drop(ErlNifEnv* env, int argc, const ERL_NIF_TER
             enif_get_string(env, argv[2], config, sizeof config, ERL_NIF_LATIN1))
         {
             int rc = session->drop(session, table, config);
-            if (rc == 0)
-            {
-                return ATOM_OK;
-
-            }
-            else
+            if (rc != 0)
             {
                 return enif_make_tuple2(env, ATOM_ERROR,
                                         enif_make_string(env, wiredtiger_strerror(rc),
                                                          ERL_NIF_LATIN1));
             }
+	    return ATOM_OK;
         }
     }
     return enif_make_badarg(env);
@@ -403,11 +406,21 @@ static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
 static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
+    return (wterl_cursor_np_worker(env, argc, argv, 1));
+}
+
+static ERL_NIF_TERM wterl_cursor_prev(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return (wterl_cursor_np_worker(env, argc, argv, 0));
+}
+
+static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int next)
+{
     wterl_cursor_handle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
 	WT_CURSOR* cursor = cursor_handle->cursor;
-	int rc = cursor->next(cursor);
+	int rc = next == 1 ? cursor->next(cursor) : cursor->prev(cursor);
 	if (rc == 0)
 	{
 	    WT_ITEM raw_value;
@@ -440,13 +453,90 @@ static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TE
     return enif_make_badarg(env);
 }
 
+static ERL_NIF_TERM wterl_cursor_search(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return (wterl_cursor_search_worker(env, argc, argv, 0));
+}
+
+static ERL_NIF_TERM wterl_cursor_search_near(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return (wterl_cursor_search_worker(env, argc, argv, 1));
+}
+
+static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near)
+{
+    wterl_cursor_handle *cursor_handle;
+    ErlNifBinary key;
+    if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle) &&
+	enif_inspect_binary(env, argv[1], &key))
+    {
+	WT_CURSOR* cursor = cursor_handle->cursor;
+	WT_ITEM raw_key;
+	int exact;
+	raw_key.data = key.data;
+	raw_key.size = key.size;
+	cursor->set_key(cursor, &raw_key);
+	int rc = near == 1 ? cursor->search_near(cursor, &exact) : cursor->search(cursor);
+	if (rc == 0)
+	{
+	    WT_ITEM raw_value;
+	    rc = cursor->get_value(cursor, &raw_value);
+	    if (rc != 0)
+	    {
+	        return enif_make_tuple2(env, ATOM_ERROR,
+					enif_make_string(env, wiredtiger_strerror(rc),
+							 ERL_NIF_LATIN1));
+	    }
+	    ErlNifBinary value;
+	    enif_alloc_binary(raw_value.size, &value);
+	    memcpy(value.data, raw_value.data, raw_value.size);
+	    return enif_make_tuple2(env, ATOM_OK, enif_make_binary(env, &value));
+	}
+	else
+	{
+	    if (rc == WT_NOTFOUND)
+	    {
+	        return enif_make_tuple2(env, ATOM_ERROR, enif_make_atom(env, "not_found"));
+	    }
+	    else
+	    {
+	        return enif_make_tuple2(env, ATOM_ERROR,
+					enif_make_string(env, wiredtiger_strerror(rc),
+							 ERL_NIF_LATIN1));
+	    }
+	}
+    }
+    return enif_make_badarg(env);
+}
+
+static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    wterl_cursor_handle *cursor_handle;
+    if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
+    {
+	WT_CURSOR* cursor = cursor_handle->cursor;
+        int rc = cursor->reset(cursor);
+        if (rc == 0)
+        {
+            return ATOM_OK;
+        }
+        else
+        {
+            return enif_make_tuple2(env, ATOM_ERROR,
+                                    enif_make_string(env, wiredtiger_strerror(rc),
+                                                     ERL_NIF_LATIN1));
+        }
+    }
+    return enif_make_badarg(env);
+}
+
 static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     wterl_cursor_handle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
 	WT_CURSOR* cursor = cursor_handle->cursor;
-        int rc = cursor->close(cursor, NULL);
+        int rc = cursor->close(cursor);
         if (rc == 0)
         {
             return ATOM_OK;
@@ -473,6 +563,11 @@ static void wterl_session_resource_cleanup(ErlNifEnv* env, void* arg)
     /* wterl_handle* handle = (wterl_handle*)arg; */
 }
 
+static void wterl_cursor_resource_cleanup(ErlNifEnv* env, void* arg)
+{
+    /* Delete any dynamically allocated memory stored in wterl_handle */
+    /* wterl_handle* handle = (wterl_handle*)arg; */
+}
 
 static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
@@ -484,6 +579,10 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
     wterl_session_RESOURCE = enif_open_resource_type(env, NULL,
                                                      "wterl_session_resource",
                                                      &wterl_session_resource_cleanup,
+                                                     flags, NULL);
+    wterl_cursor_RESOURCE = enif_open_resource_type(env, NULL,
+                                                     "wterl_cursor_resource",
+                                                     &wterl_cursor_resource_cleanup,
                                                      flags, NULL);
     ATOM_ERROR = enif_make_atom(env, "error");
     ATOM_OK = enif_make_atom(env, "ok");

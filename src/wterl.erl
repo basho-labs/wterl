@@ -33,9 +33,13 @@
          table_create/3,
          table_drop/2,
          table_drop/3,
-         cursor_open/2,
-         cursor_next/1,
          cursor_close/1,
+         cursor_next/1,
+         cursor_open/2,
+         cursor_prev/1,
+         cursor_reset/1,
+         cursor_search/2,
+         cursor_search_near/2,
          config_to_bin/2]).
 
 -on_load(init/0).
@@ -96,6 +100,18 @@ cursor_open(_Ref, _Table) ->
     ?nif_stub.
 
 cursor_next(_Cursor) ->
+    ?nif_stub.
+
+cursor_prev(_Cursor) ->
+    ?nif_stub.
+
+cursor_search(_Cursor, _Key) ->
+    ?nif_stub.
+
+cursor_search_near(_Cursor, _Key) ->
+    ?nif_stub.
+
+cursor_reset(_Cursor) ->
     ?nif_stub.
 
 cursor_close(_Cursor) ->
@@ -163,26 +179,65 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 -ifdef(TEST).
 
 basic_test() ->
+    %% Open a connection and a session, create the test table.
     Opts = [{create, true}, {cache_size, "100MB"}],
     ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
     {ok, ConnRef} = conn_open("/tmp/wterl.basic", config_to_bin(Opts, [])),
     {ok, SRef} = session_open(ConnRef),
-    {ok, Table} = table_create(SRef, "table:test"),
 
-    ok = session_put(SRef, Table, <<"a">>, <<"apple">>),
-    {ok, <<"apple">>} = session_get(SRef, Table, <<"a">>),
-    ok = session_delete(SRef, Table, <<"a">>),
-    {error, not_found} = session_get(SRef, Table, <<"a">>),
+    %% Remove the table from any earlier run.
+    ok = table_drop(SRef, "table:test", "force"),
 
-    {ok, Cursor} = cursor_open(SRef, Table),
+    %% Create the table
+    ok = table_create(SRef, "table:test"),
+
+    %% Insert/delete a key using the session handle
+    ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
+    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+    ok = session_delete(SRef, "table:test", <<"a">>),
+    {error, not_found} = session_get(SRef, "table:test", <<"a">>),
+
+    %% Open/close a cursor
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
     ok = cursor_close(Cursor),
 
-    ok = session_put(SRef, Table, <<"a">>, <<"apple">>),
-    {ok, Cursor} = cursor_open(SRef, Table),
+    %% Insert some items
+    ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
+    ok = session_put(SRef, "table:test", <<"b">>, <<"banana">>),
+    ok = session_put(SRef, "table:test", <<"c">>, <<"cherry">>),
+    ok = session_put(SRef, "table:test", <<"d">>, <<"date">>),
+    ok = session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>),
+
+    %% Move a cursor back and forth
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
     {ok, <<"apple">>} = cursor_next(Cursor),
+    {ok, <<"banana">>} = cursor_next(Cursor),
+    {ok, <<"cherry">>} = cursor_next(Cursor),
+    {ok, <<"date">>} = cursor_next(Cursor),
+    {ok, <<"cherry">>} = cursor_prev(Cursor),
+    {ok, <<"date">>} = cursor_next(Cursor),
+    {ok, <<"gooseberry">>} = cursor_next(Cursor),
     {error, not_found} = cursor_next(Cursor),
     ok = cursor_close(Cursor),
 
+    %% Search for an item
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
+    {ok, <<"banana">>} = cursor_search(Cursor, <<"b">>),
+    ok = cursor_close(Cursor),
+
+    %% Range search for an item
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
+    {ok, <<"gooseberry">>} = cursor_search_near(Cursor, <<"f">>),
+    ok = cursor_close(Cursor),
+
+    %% Check that cursor reset works
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
+    {ok, <<"apple">>} = cursor_next(Cursor),
+    ok = cursor_reset(Cursor),
+    {ok, <<"apple">>} = cursor_next(Cursor),
+    ok = cursor_close(Cursor),
+
+    %% Close the session/connection
     ok = session_close(SRef),
     ok = conn_close(ConnRef).
 

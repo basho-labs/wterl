@@ -2,7 +2,7 @@
 
 set -e
 
-WT_VSN=20111212
+WT_VSN=1.0.0
 
 if [ `basename $PWD` != "c_src" ]; then
     pushd c_src
@@ -21,7 +21,7 @@ case "$1" in
         tar -xjf wiredtiger-$WT_VSN.tar.bz2
 
         (cd wiredtiger-$WT_VSN/build_posix && \
-            ../configure --disable-shared --enable-static --with-pic \
+            ../configure --with-pic \
                          --prefix=$BASEDIR/system && \
             make && make install)
 
