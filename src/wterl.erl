@@ -24,15 +24,6 @@
 
 -export([conn_open/2,
          conn_close/1,
-         session_open/1,
-         session_get/3,
-         session_put/4,
-         session_delete/3,
-         session_close/1,
-         session_create/2,
-         session_create/3,
-         session_drop/2,
-         session_drop/3,
          cursor_close/1,
          cursor_next/1,
          cursor_open/2,
@@ -40,6 +31,27 @@
          cursor_reset/1,
          cursor_search/2,
          cursor_search_near/2,
+         session_close/1,
+         session_create/2,
+         session_create/3,
+         session_delete/3,
+         session_drop/2,
+         session_drop/3,
+         session_get/3,
+         session_open/1,
+         session_put/4,
+         session_rename/3,
+         session_rename/4,
+         session_salvage/2,
+         session_salvage/3,
+         session_sync/2,
+         session_sync/3,
+         session_truncate/2,
+         session_truncate/3,
+         session_upgrade/2,
+         session_upgrade/3,
+         session_verify/2,
+         session_verify/3,
          config_to_bin/2]).
 
 -on_load(init/0).
@@ -72,31 +84,62 @@ conn_close(_ConnRef) ->
 session_open(_ConnRef) ->
     ?nif_stub.
 
+session_close(_Ref) ->
+    ?nif_stub.
+
+session_create(Ref, Name) ->
+    session_create(Ref, Name, "").
+session_create(_Ref, _Name, _Config) ->
+    ?nif_stub.
+
+session_drop(Ref, Name) ->
+    session_drop(Ref, Name, "").
+session_drop(_Ref, _Name, _Config) ->
+    ?nif_stub.
+
+session_delete(_Ref, _Table, _Key) ->
+    ?nif_stub.
+
 session_get(_Ref, _Table, _Key) ->
     ?nif_stub.
 
 session_put(_Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
-session_delete(_Ref, _Table, _Key) ->
+session_rename(Ref, OldName, NewName) ->
+    session_rename(Ref, OldName, NewName, "").
+session_rename(_Ref, _OldName, _NewName, _Config) ->
     ?nif_stub.
 
-session_close(_Ref) ->
+session_salvage(Ref, Name) ->
+    session_salvage(Ref, Name, "").
+session_salvage(_Ref, _Name, _Config) ->
     ?nif_stub.
 
-session_create(Ref, Name) ->
-    session_create(Ref, Name, "").
-
-session_create(_Ref, _Name, _Config) ->
+session_sync(Ref, Name) ->
+    session_sync(Ref, Name, "").
+session_sync(_Ref, _Name, _Config) ->
     ?nif_stub.
 
-session_drop(Ref, Name) ->
-    session_drop(Ref, Name, "").
+session_truncate(Ref, Name) ->
+    session_truncate(Ref, Name, "").
+session_truncate(_Ref, _Name, _Config) ->
+    ?nif_stub.
 
-session_drop(_Ref, _Name, _Config) ->
+session_upgrade(Ref, Name) ->
+    session_upgrade(Ref, Name, "").
+session_upgrade(_Ref, _Name, _Config) ->
+    ?nif_stub.
+
+session_verify(Ref, Name) ->
+    session_verify(Ref, Name, "").
+session_verify(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 cursor_open(_Ref, _Table) ->
+    ?nif_stub.
+
+cursor_close(_Cursor) ->
     ?nif_stub.
 
 cursor_next(_Cursor) ->
@@ -112,9 +155,6 @@ cursor_search_near(_Cursor, _Key) ->
     ?nif_stub.
 
 cursor_reset(_Cursor) ->
-    ?nif_stub.
-
-cursor_close(_Cursor) ->
     ?nif_stub.
 
 %%
@@ -180,35 +220,80 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 
 basic_test() ->
     %% Open a connection and a session, create the test table.
-    Opts = [{create, true}, {cache_size, "100MB"}],
     ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
-    {ok, ConnRef} = conn_open("/tmp/wterl.basic", config_to_bin(Opts, [])),
+
+    io:put_chars(standard_error, "\topen connection\n"),
+    {ok, ConnRef} =
+        conn_open("/tmp/wterl.basic", "create=true,cache_size=100MB"),
     {ok, SRef} = session_open(ConnRef),
 
-    %% Remove the table from any earlier run.
+    %% Remove the table from any earlier run and re-create it
+    io:put_chars(standard_error, "\ttable drop/create\n"),
     ok = session_drop(SRef, "table:test", "force"),
-
-    %% Create the table
     ok = session_create(SRef, "table:test"),
 
     %% Insert/delete a key using the session handle
+    io:put_chars(standard_error, "\tsession insert/delete\n"),
     ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
     {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
     ok = session_delete(SRef, "table:test", <<"a">>),
     {error, not_found} = session_get(SRef, "table:test", <<"a">>),
 
-    %% Open/close a cursor
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    ok = cursor_close(Cursor),
-
     %% Insert some items
+    io:put_chars(standard_error, "\tsession insert\n"),
     ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
     ok = session_put(SRef, "table:test", <<"b">>, <<"banana">>),
     ok = session_put(SRef, "table:test", <<"c">>, <<"cherry">>),
     ok = session_put(SRef, "table:test", <<"d">>, <<"date">>),
     ok = session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>),
 
+    %% Remaining session operations.
+    io:put_chars(standard_error, "\tsession verify\n"),
+    ok = session_verify(SRef, "table:test"),
+    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+
+    io:put_chars(standard_error, "\tsession sync\n"),
+    ok = session_sync(SRef, "table:test"),
+    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+
+    %% ===================================================================
+    %% KEITH: SKIP SALVAGE FOR NOW, THERE IS SOMETHING WRONG.
+    %% ===================================================================
+    %% io:put_chars(standard_error, "\tsession salvage\n"),
+    %% ok = session_salvage(SRef, "table:test"),
+    %% {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+
+    io:put_chars(standard_error, "\tsession truncate\n"),
+    ok = session_truncate(SRef, "table:test"),
+    {error, not_found} = session_get(SRef, "table:test", <<"a">>),
+
+    ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
+    ok = session_put(SRef, "table:test", <<"b">>, <<"banana">>),
+    ok = session_put(SRef, "table:test", <<"c">>, <<"cherry">>),
+    ok = session_put(SRef, "table:test", <<"d">>, <<"date">>),
+    ok = session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>),
+
+    io:put_chars(standard_error, "\tsession upgrade\n"),
+    ok = session_upgrade(SRef, "table:test"),
+    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+
+    io:put_chars(standard_error, "\tsession rename\n"),
+    ok = session_rename(SRef, "table:test", "table:new"),
+    {ok, <<"apple">>} = session_get(SRef, "table:new", <<"a">>),
+    ok = session_rename(SRef, "table:new", "table:test"),
+    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+
+    %% Open/close a pair of cursors, check first/last returns
+    io:put_chars(standard_error, "\tcursor open/close, first/last\n"),
+    {ok, Cursor1} = cursor_open(SRef, "table:test"),
+    {ok, <<"apple">>} = cursor_next(Cursor1),
+    ok = cursor_close(Cursor1),
+    {ok, Cursor2} = cursor_open(SRef, "table:test"),
+    {ok, <<"gooseberry">>} = cursor_prev(Cursor2),
+    ok = cursor_close(Cursor2),
+
     %% Move a cursor back and forth
+    io:put_chars(standard_error, "\tcursor next/prev\n"),
     {ok, Cursor} = cursor_open(SRef, "table:test"),
     {ok, <<"apple">>} = cursor_next(Cursor),
     {ok, <<"banana">>} = cursor_next(Cursor),
@@ -221,16 +306,19 @@ basic_test() ->
     ok = cursor_close(Cursor),
 
     %% Search for an item
+    io:put_chars(standard_error, "\tcursor search\n"),
     {ok, Cursor} = cursor_open(SRef, "table:test"),
     {ok, <<"banana">>} = cursor_search(Cursor, <<"b">>),
     ok = cursor_close(Cursor),
 
     %% Range search for an item
+    io:put_chars(standard_error, "\tcursor search-near\n"),
     {ok, Cursor} = cursor_open(SRef, "table:test"),
-    {ok, <<"gooseberry">>} = cursor_search_near(Cursor, <<"f">>),
+    {ok, <<"gooseberry">>} = cursor_search_near(Cursor, <<"z">>),
     ok = cursor_close(Cursor),
 
     %% Check that cursor reset works
+    io:put_chars(standard_error, "\tcursor reset\n"),
     {ok, Cursor} = cursor_open(SRef, "table:test"),
     {ok, <<"apple">>} = cursor_next(Cursor),
     ok = cursor_reset(Cursor),
@@ -238,6 +326,7 @@ basic_test() ->
     ok = cursor_close(Cursor),
 
     %% Close the session/connection
+    io:put_chars(standard_error, "\tsession/connection close\n"),
     ok = session_close(SRef),
     ok = conn_close(ConnRef).
 
