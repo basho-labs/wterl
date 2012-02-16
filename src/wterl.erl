@@ -101,12 +101,11 @@ cursor_close(_Cursor) ->
 %% Configuration type information.
 %%
 config_types() ->
-    [{cache_size, integer},
+    [{cache_size, string},
      {create, bool},
      {error_prefix, string},
      {eviction_target, integer},
      {eviction_trigger, integer},
-     {exclusive, false},
      {extensions, string},
      {hazard_max, integer},
      {home_environment, bool},
@@ -160,7 +159,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 -ifdef(TEST).
 
 basic_test() ->
-    Opts = [{create, true}],
+    Opts = [{create, true}, {cache_size, "100MB"}],
     ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
     {ok, ConnRef} = conn_open("/tmp/wterl.basic", config_to_bin(Opts, [])),
     {ok, SRef} = session_new(ConnRef),
