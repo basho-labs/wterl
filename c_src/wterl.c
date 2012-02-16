@@ -53,36 +53,29 @@ static ERL_NIF_TERM ATOM_ERROR;
 static ERL_NIF_TERM ATOM_OK;
 
 // Prototypes
-static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_table_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_table_drop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int next);
 static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_prev(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_search(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_search_near(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near);
-static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_drop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
 static ErlNifFunc nif_funcs[] =
 {
-    {"conn_open", 2, wterl_conn_open},
     {"conn_close", 1, wterl_conn_close},
-    {"session_open", 1, wterl_session_open},
-    {"session_get", 3, wterl_session_get},
-    {"session_put", 4, wterl_session_put},
-    {"session_delete", 3, wterl_session_delete},
-    {"session_close", 1, wterl_session_close},
-    {"table_create", 3, wterl_table_create},
-    {"table_drop", 3, wterl_table_drop},
+    {"conn_open", 2, wterl_conn_open},
     {"cursor_close", 1, wterl_cursor_close},
     {"cursor_next", 1, wterl_cursor_next},
     {"cursor_open", 2, wterl_cursor_open},
@@ -90,8 +83,14 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_reset", 1, wterl_cursor_reset},
     {"cursor_search", 2, wterl_cursor_search},
     {"cursor_search_near", 2, wterl_cursor_search_near},
+    {"session_close", 1, wterl_session_close},
+    {"session_create", 3, wterl_session_create},
+    {"session_delete", 3, wterl_session_delete},
+    {"session_drop", 3, wterl_session_drop},
+    {"session_get", 3, wterl_session_get},
+    {"session_open", 1, wterl_session_open},
+    {"session_put", 4, wterl_session_put},
 };
-
 
 static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -324,7 +323,7 @@ static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_
     return enif_make_badarg(env);
 }
 
-static ERL_NIF_TERM wterl_table_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+static ERL_NIF_TERM wterl_session_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     wterl_session_handle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
@@ -348,7 +347,7 @@ static ERL_NIF_TERM wterl_table_create(ErlNifEnv* env, int argc, const ERL_NIF_T
     return enif_make_badarg(env);
 }
 
-static ERL_NIF_TERM wterl_table_drop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+static ERL_NIF_TERM wterl_session_drop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     wterl_session_handle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))

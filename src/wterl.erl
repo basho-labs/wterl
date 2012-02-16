@@ -29,10 +29,10 @@
          session_put/4,
          session_delete/3,
          session_close/1,
-         table_create/2,
-         table_create/3,
-         table_drop/2,
-         table_drop/3,
+         session_create/2,
+         session_create/3,
+         session_drop/2,
+         session_drop/3,
          cursor_close/1,
          cursor_next/1,
          cursor_open/2,
@@ -84,16 +84,16 @@ session_delete(_Ref, _Table, _Key) ->
 session_close(_Ref) ->
     ?nif_stub.
 
-table_create(Ref, Name) ->
-    table_create(Ref, Name, "").
+session_create(Ref, Name) ->
+    session_create(Ref, Name, "").
 
-table_create(_Ref, _Name, _Config) ->
+session_create(_Ref, _Name, _Config) ->
     ?nif_stub.
 
-table_drop(Ref, Name) ->
-    table_drop(Ref, Name, "").
+session_drop(Ref, Name) ->
+    session_drop(Ref, Name, "").
 
-table_drop(_Ref, _Name, _Config) ->
+session_drop(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 cursor_open(_Ref, _Table) ->
@@ -186,10 +186,10 @@ basic_test() ->
     {ok, SRef} = session_open(ConnRef),
 
     %% Remove the table from any earlier run.
-    ok = table_drop(SRef, "table:test", "force"),
+    ok = session_drop(SRef, "table:test", "force"),
 
     %% Create the table
-    ok = table_create(SRef, "table:test"),
+    ok = session_create(SRef, "table:test"),
 
     %% Insert/delete a key using the session handle
     ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
