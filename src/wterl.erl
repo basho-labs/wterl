@@ -24,7 +24,7 @@
 
 -export([conn_open/2,
          conn_close/1,
-         session_new/1,
+         session_open/1,
          session_get/3,
          session_put/4,
          session_delete/3,
@@ -33,6 +33,9 @@
          table_create/3,
          table_drop/2,
          table_drop/3,
+         cursor_open/2,
+         cursor_next/1,
+         cursor_close/1,
          config_to_bin/2]).
 
 -on_load(init/0).
@@ -62,7 +65,7 @@ conn_open(_HomeDir, _Config) ->
 conn_close(_ConnRef) ->
     ?nif_stub.
 
-session_new(_ConnRef) ->
+session_open(_ConnRef) ->
     ?nif_stub.
 
 session_get(_Ref, _Table, _Key) ->
@@ -89,16 +92,24 @@ table_drop(Ref, Name) ->
 table_drop(_Ref, _Name, _Config) ->
     ?nif_stub.
 
+cursor_open(_Ref, _Table) ->
+    ?nif_stub.
+
+cursor_next(_Cursor) ->
+    ?nif_stub.
+
+cursor_close(_Cursor) ->
+    ?nif_stub.
+
 %%
 %% Configuration type information.
 %%
 config_types() ->
-    [{cache_size, integer},
+    [{cache_size, string},
      {create, bool},
      {error_prefix, string},
      {eviction_target, integer},
      {eviction_trigger, integer},
-     {exclusive, false},
      {extensions, string},
      {hazard_max, integer},
      {home_environment, bool},
@@ -152,15 +163,26 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 -ifdef(TEST).
 
 basic_test() ->
-    Opts = [{create, true}],
+    Opts = [{create, true}, {cache_size, "100MB"}],
     ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
     {ok, ConnRef} = conn_open("/tmp/wterl.basic", config_to_bin(Opts, [])),
-    {ok, SRef} = session_new(ConnRef),
+    {ok, SRef} = session_open(ConnRef),
     {ok, Table} = table_create(SRef, "table:test"),
+
     ok = session_put(SRef, Table, <<"a">>, <<"apple">>),
     {ok, <<"apple">>} = session_get(SRef, Table, <<"a">>),
     ok = session_delete(SRef, Table, <<"a">>),
     {error, not_found} = session_get(SRef, Table, <<"a">>),
+
+    {ok, Cursor} = cursor_open(SRef, Table),
+    ok = cursor_close(Cursor),
+
+    ok = session_put(SRef, Table, <<"a">>, <<"apple">>),
+    {ok, Cursor} = cursor_open(SRef, Table),
+    {ok, <<"apple">>} = cursor_next(Cursor),
+    {error, not_found} = cursor_next(Cursor),
+    ok = cursor_close(Cursor),
+
     ok = session_close(SRef),
     ok = conn_close(ConnRef).
 

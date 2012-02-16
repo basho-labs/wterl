@@ -29,6 +29,7 @@
 
 static ErlNifResourceType* wterl_conn_RESOURCE;
 static ErlNifResourceType* wterl_session_RESOURCE;
+static ErlNifResourceType* wterl_cursor_RESOURCE;
 
 typedef struct
 {
@@ -40,6 +41,11 @@ typedef struct
     WT_SESSION* session;
 } wterl_session_handle;
 
+typedef struct
+{
+    WT_CURSOR* cursor;
+} wterl_cursor_handle;
+
 typedef char TableName[128];
 
 // Atoms (initialized in on_load)
@@ -49,25 +55,31 @@ static ERL_NIF_TERM ATOM_OK;
 // Prototypes
 static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_new(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_table_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_table_drop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
 static ErlNifFunc nif_funcs[] =
 {
     {"conn_open", 2, wterl_conn_open},
     {"conn_close", 1, wterl_conn_close},
-    {"session_new", 1, wterl_session_new},
+    {"session_open", 1, wterl_session_open},
     {"session_get", 3, wterl_session_get},
     {"session_put", 4, wterl_session_put},
     {"session_delete", 3, wterl_session_delete},
     {"session_close", 1, wterl_session_close},
     {"table_create", 3, wterl_table_create},
     {"table_drop", 3, wterl_table_drop},
+    {"cursor_open", 2, wterl_cursor_open},
+    {"cursor_next", 1, wterl_cursor_next},
+    {"cursor_close", 1, wterl_cursor_close},
 };
 
 
@@ -120,7 +132,7 @@ static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TER
     return enif_make_badarg(env);
 }
 
-static ERL_NIF_TERM wterl_session_new(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     wterl_conn_handle* conn_handle;
     if (enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&conn_handle))
@@ -352,6 +364,98 @@ static ERL_NIF_TERM wterl_table_drop(ErlNifEnv* env, int argc, const ERL_NIF_TER
                                         enif_make_string(env, wiredtiger_strerror(rc),
                                                          ERL_NIF_LATIN1));
             }
+        }
+    }
+    return enif_make_badarg(env);
+}
+
+static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    wterl_session_handle* session_handle;
+    if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
+    {
+	WT_SESSION* session = session_handle->session;
+	TableName table;
+	WT_CURSOR* cursor;
+        if (enif_get_string(env, argv[1], table, sizeof table, ERL_NIF_LATIN1))
+	{
+	    int rc = session->open_cursor(session, table, NULL, "overwrite,raw", &cursor);
+	    if (rc == 0)
+	    {
+		wterl_cursor_handle* handle = enif_alloc_resource(wterl_cursor_RESOURCE,
+								  sizeof(wterl_cursor_handle));
+		handle->cursor = cursor;
+		ERL_NIF_TERM result = enif_make_resource(env, handle);
+		enif_keep_resource(session_handle);
+		enif_release_resource(handle);
+		return (enif_make_tuple2(env, ATOM_OK, result));
+	    }
+	    else
+	    {
+		    return enif_make_tuple2(env, ATOM_ERROR,
+					    enif_make_string(env, wiredtiger_strerror(rc),
+							     ERL_NIF_LATIN1));
+	    }
+	}
+    }
+    return enif_make_badarg(env);
+}
+
+static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    wterl_cursor_handle *cursor_handle;
+    if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
+    {
+	WT_CURSOR* cursor = cursor_handle->cursor;
+	int rc = cursor->next(cursor);
+	if (rc == 0)
+	{
+	    WT_ITEM raw_value;
+	    rc = cursor->get_value(cursor, &raw_value);
+	    if (rc != 0)
+	    {
+	        return enif_make_tuple2(env, ATOM_ERROR,
+					enif_make_string(env, wiredtiger_strerror(rc),
+							 ERL_NIF_LATIN1));
+	    }
+	    ErlNifBinary value;
+	    enif_alloc_binary(raw_value.size, &value);
+	    memcpy(value.data, raw_value.data, raw_value.size);
+	    return enif_make_tuple2(env, ATOM_OK, enif_make_binary(env, &value));
+	}
+	else
+	{
+	    if (rc == WT_NOTFOUND)
+	    {
+	        return enif_make_tuple2(env, ATOM_ERROR, enif_make_atom(env, "not_found"));
+	    }
+	    else
+	    {
+	        return enif_make_tuple2(env, ATOM_ERROR,
+					enif_make_string(env, wiredtiger_strerror(rc),
+							 ERL_NIF_LATIN1));
+	    }
+	}
+    }
+    return enif_make_badarg(env);
+}
+
+static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    wterl_cursor_handle *cursor_handle;
+    if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
+    {
+	WT_CURSOR* cursor = cursor_handle->cursor;
+        int rc = cursor->close(cursor, NULL);
+        if (rc == 0)
+        {
+            return ATOM_OK;
+        }
+        else
+        {
+            return enif_make_tuple2(env, ATOM_ERROR,
+                                    enif_make_string(env, wiredtiger_strerror(rc),
+                                                     ERL_NIF_LATIN1));
         }
     }
     return enif_make_badarg(env);
