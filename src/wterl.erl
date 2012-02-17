@@ -25,12 +25,15 @@
 -export([conn_open/2,
          conn_close/1,
          cursor_close/1,
+         cursor_insert/3,
          cursor_next/1,
          cursor_open/2,
          cursor_prev/1,
+         cursor_remove/3,
          cursor_reset/1,
          cursor_search/2,
          cursor_search_near/2,
+         cursor_update/3,
          session_close/1,
          session_create/2,
          session_create/3,
@@ -155,6 +158,15 @@ cursor_search_near(_Cursor, _Key) ->
     ?nif_stub.
 
 cursor_reset(_Cursor) ->
+    ?nif_stub.
+
+cursor_insert(_Ref, _Key, _Value) ->
+    ?nif_stub.
+
+cursor_update(_Ref, _Key, _Value) ->
+    ?nif_stub.
+
+cursor_remove(_Ref, _Key, _Value) ->
     ?nif_stub.
 
 %%
@@ -324,6 +336,33 @@ basic_test() ->
     ok = cursor_reset(Cursor),
     {ok, <<"apple">>} = cursor_next(Cursor),
     ok = cursor_close(Cursor),
+
+    %% Insert/overwrite an item using a cursor
+    io:put_chars(standard_error, "\tcursor insert/overwrite\n"),
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
+    ok = cursor_insert(Cursor, <<"h">>, <<"huckleberry">>),
+    {ok, <<"huckleberry">>} = cursor_search(Cursor, <<"h">>),
+    ok = cursor_insert(Cursor, <<"g">>, <<"grapefruit">>),
+    {ok, <<"grapefruit">>} = cursor_search(Cursor, <<"g">>),
+    ok = cursor_close(Cursor),
+    {ok, <<"grapefruit">>} = session_get(SRef, "table:test", <<"g">>),
+    {ok, <<"huckleberry">>} = session_get(SRef, "table:test", <<"h">>),
+
+    %% Update an item using a cursor
+    io:put_chars(standard_error, "\tcursor update\n"),
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
+    ok = cursor_update(Cursor, <<"g">>, <<"goji berries">>),
+    {error, not_found} = cursor_update(Cursor, <<"k">>, <<"kumquat">>),
+    ok = cursor_close(Cursor),
+    {ok, <<"goji berries">>} = session_get(SRef, "table:test", <<"g">>),
+
+    %% Remove an item using a cursor
+    io:put_chars(standard_error, "\tcursor remove\n"),
+    {ok, Cursor} = cursor_open(SRef, "table:test"),
+    ok = cursor_remove(Cursor, <<"g">>, <<"goji berries">>),
+    {error, not_found} = cursor_remove(Cursor, <<"l">>, <<"lemon">>),
+    ok = cursor_close(Cursor),
+    {error, not_found} = session_get(SRef, "table:test", <<"g">>),
 
     %% Close the session/connection
     io:put_chars(standard_error, "\tsession/connection close\n"),
