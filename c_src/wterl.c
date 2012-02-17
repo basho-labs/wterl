@@ -47,7 +47,7 @@ typedef struct
 } wterl_cursor_handle;
 
 typedef char Config[256];				// configuration strings 
-typedef char Uri[128];				// object names
+typedef char Uri[128];					// object names
 
 // Atoms (initialized in on_load)
 static ERL_NIF_TERM ATOM_ERROR;
@@ -132,8 +132,8 @@ static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM
         int rc = wiredtiger_open(homedir, NULL, config, &conn);
         if (rc == 0)
         {
-            wterl_conn_handle* conn_handle = enif_alloc_resource(wterl_conn_RESOURCE,
-                                                            sizeof(wterl_conn_handle));
+            wterl_conn_handle* conn_handle =
+		enif_alloc_resource(wterl_conn_RESOURCE, sizeof(wterl_conn_handle));
             conn_handle->conn = conn;
             ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
             enif_release_resource(conn_handle);
@@ -179,8 +179,8 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
         WT_SESSION* session = session_handle->session;
-        Uri uri;
 	Config config;
+        Uri uri;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1) &&
             enif_get_string(env, argv[2], config, sizeof config, ERL_NIF_LATIN1))
         {
@@ -234,8 +234,8 @@ static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_T
         int rc = conn->open_session(conn, NULL, NULL, &session);
         if (rc == 0)
         {
-            wterl_session_handle* session_handle = enif_alloc_resource(wterl_session_RESOURCE,
-                                                                sizeof(wterl_session_handle));
+            wterl_session_handle* session_handle =
+		enif_alloc_resource(wterl_session_RESOURCE, sizeof(wterl_session_handle));
             session_handle->session = session;
             ERL_NIF_TERM result = enif_make_resource(env, session_handle);
             enif_keep_resource(conn_handle);
@@ -457,8 +457,8 @@ static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
 	    int rc = session->open_cursor(session, uri, NULL, "overwrite,raw", &cursor);
 	    if (rc == 0)
 	    {
-		wterl_cursor_handle* cursor_handle = enif_alloc_resource(wterl_cursor_RESOURCE,
-								  sizeof(wterl_cursor_handle));
+		wterl_cursor_handle* cursor_handle =
+			enif_alloc_resource(wterl_cursor_RESOURCE, sizeof(wterl_cursor_handle));
 		cursor_handle->cursor = cursor;
 		ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);
 		enif_keep_resource(session_handle);
