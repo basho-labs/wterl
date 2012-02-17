@@ -46,7 +46,6 @@ typedef struct
     WT_CURSOR* cursor;
 } wterl_cursor_handle;
 
-typedef char Config[256];				// configuration strings 
 typedef char Uri[128];					// object names
 
 // Atoms (initialized in on_load)
@@ -115,7 +114,7 @@ static ErlNifFunc nif_funcs[] =
 static inline ERL_NIF_TERM wterl_strerror(ErlNifEnv* env, int rc)
 {
     if (rc == WT_NOTFOUND)
-	return enif_make_tuple2(env, ATOM_ERROR, enif_make_atom(env, "not_found"));
+	return enif_make_atom(env, "not_found");
     else
 	return enif_make_tuple2(env, ATOM_ERROR,
 			        enif_make_string(env, wiredtiger_strerror(rc), ERL_NIF_LATIN1));
@@ -123,13 +122,13 @@ static inline ERL_NIF_TERM wterl_strerror(ErlNifEnv* env, int rc)
 
 static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    Config config;
+    ErlNifBinary config;
     char homedir[4096];
     if (enif_get_string(env, argv[0], homedir, sizeof homedir, ERL_NIF_LATIN1) &&
-	enif_get_string(env, argv[1], config, sizeof config, ERL_NIF_LATIN1))
+	enif_inspect_binary(env, argv[1], &config))
     {
         WT_CONNECTION* conn;
-        int rc = wiredtiger_open(homedir, NULL, config, &conn);
+        int rc = wiredtiger_open(homedir, NULL, (const char*)config.data, &conn);
         if (rc == 0)
         {
             wterl_conn_handle* conn_handle =
@@ -179,36 +178,36 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
         WT_SESSION* session = session_handle->session;
-	Config config;
+	ErlNifBinary config;
         Uri uri;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1) &&
-            enif_get_string(env, argv[2], config, sizeof config, ERL_NIF_LATIN1))
+            enif_inspect_binary(env, argv[2], &config))
         {
 	    int rc;
 	    switch (op) {
 	    case WTERL_OP_CREATE:
-		rc = session->create(session, uri, config);
+              rc = session->create(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_DROP:
-		rc = session->drop(session, uri, config);
+              rc = session->drop(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_SALVAGE:
-		rc = session->salvage(session, uri, config);
+              rc = session->salvage(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_SYNC:
-		rc = session->sync(session, uri, config);
+              rc = session->sync(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_TRUNCATE:
 		// Ignore the cursor start/stop form of truncation for now,
 		// support only the full file truncation.
-		rc = session->truncate(session, uri, NULL, NULL, config);
+              rc = session->truncate(session, uri, NULL, NULL, (const char*)config.data);
 		break;
 	    case WTERL_OP_UPGRADE:
-		rc = session->upgrade(session, uri, config);
+              rc = session->upgrade(session, uri, (const char*)config.data);
 		break;
 	    default:
 	    case WTERL_OP_VERIFY:
-		rc = session->verify(session, uri, config);
+              rc = session->verify(session, uri, (const char*)config.data);
 		break;
 	    }
             if (rc != 0)
@@ -285,13 +284,13 @@ static ERL_NIF_TERM wterl_session_rename(ErlNifEnv* env, int argc, const ERL_NIF
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
         WT_SESSION* session = session_handle->session;
-        Config config;
+        ErlNifBinary config;
         Uri oldname, newname;
         if (enif_get_string(env, argv[1], oldname, sizeof oldname, ERL_NIF_LATIN1) &&
             enif_get_string(env, argv[2], newname, sizeof newname, ERL_NIF_LATIN1) &&
-            enif_get_string(env, argv[3], config, sizeof config, ERL_NIF_LATIN1))
+            enif_inspect_binary(env, argv[3], &config))
         {
-            int rc = session->rename(session, oldname, newname, config);
+          int rc = session->rename(session, oldname, newname, (const char*)config.data);
             if (rc != 0)
             {
 		return wterl_strerror(env, rc);

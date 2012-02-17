@@ -55,13 +55,15 @@
          session_upgrade/3,
          session_verify/2,
          session_verify/3,
-         config_to_bin/2]).
+         config_to_bin/1]).
 
 -on_load(init/0).
 
 -define(nif_stub, nif_stub_error(?LINE)).
 nif_stub_error(Line) ->
     erlang:nif_error({nif_not_loaded,module,?MODULE,line,Line}).
+
+-define(EMPTY_CONFIG, <<"\0">>).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -91,12 +93,12 @@ session_close(_Ref) ->
     ?nif_stub.
 
 session_create(Ref, Name) ->
-    session_create(Ref, Name, "").
+    session_create(Ref, Name, ?EMPTY_CONFIG).
 session_create(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 session_drop(Ref, Name) ->
-    session_drop(Ref, Name, "").
+    session_drop(Ref, Name, ?EMPTY_CONFIG).
 session_drop(_Ref, _Name, _Config) ->
     ?nif_stub.
 
@@ -110,32 +112,32 @@ session_put(_Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
 session_rename(Ref, OldName, NewName) ->
-    session_rename(Ref, OldName, NewName, "").
+    session_rename(Ref, OldName, NewName, ?EMPTY_CONFIG).
 session_rename(_Ref, _OldName, _NewName, _Config) ->
     ?nif_stub.
 
 session_salvage(Ref, Name) ->
-    session_salvage(Ref, Name, "").
+    session_salvage(Ref, Name, ?EMPTY_CONFIG).
 session_salvage(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 session_sync(Ref, Name) ->
-    session_sync(Ref, Name, "").
+    session_sync(Ref, Name, ?EMPTY_CONFIG).
 session_sync(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 session_truncate(Ref, Name) ->
-    session_truncate(Ref, Name, "").
+    session_truncate(Ref, Name, ?EMPTY_CONFIG).
 session_truncate(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 session_upgrade(Ref, Name) ->
-    session_upgrade(Ref, Name, "").
+    session_upgrade(Ref, Name, ?EMPTY_CONFIG).
 session_upgrade(_Ref, _Name, _Config) ->
     ?nif_stub.
 
 session_verify(Ref, Name) ->
-    session_verify(Ref, Name, "").
+    session_verify(Ref, Name, ?EMPTY_CONFIG).
 session_verify(_Ref, _Name, _Config) ->
     ?nif_stub.
 
@@ -179,6 +181,7 @@ config_types() ->
      {eviction_target, integer},
      {eviction_trigger, integer},
      {extensions, string},
+     {force, bool},
      {hazard_max, integer},
      {home_environment, bool},
      {home_environment_priv, bool},
@@ -203,6 +206,8 @@ config_encode(bool, false) ->
 config_encode(_Type, _Value) ->
     invalid.
 
+config_to_bin(Opts) ->
+    config_to_bin(Opts, []).
 config_to_bin([], Acc) ->
     iolist_to_binary([Acc, <<"\0">>]);
 config_to_bin([{Key, Value} | Rest], Acc) ->
@@ -215,7 +220,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
                            Acc;
                        EncodedValue ->
                            EncodedKey = atom_to_binary(Key, utf8),
-                           [EncodedKey, <<" = ">>, EncodedValue, <<", ">> | Acc]
+                           [EncodedKey, <<"=">>, EncodedValue, <<",">> | Acc]
                    end,
             config_to_bin(Rest, Acc2);
         false ->
@@ -235,13 +240,13 @@ basic_test() ->
     ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
 
     io:put_chars(standard_error, "\topen connection\n"),
-    {ok, ConnRef} =
-        conn_open("/tmp/wterl.basic", "create=true,cache_size=100MB"),
+    OpenConfig = config_to_bin([{create,true},{cache_size,"100MB"}]),
+    {ok, ConnRef} = conn_open("/tmp/wterl.basic", OpenConfig),
     {ok, SRef} = session_open(ConnRef),
 
     %% Remove the table from any earlier run and re-create it
     io:put_chars(standard_error, "\ttable drop/create\n"),
-    ok = session_drop(SRef, "table:test", "force"),
+    ok = session_drop(SRef, "table:test", config_to_bin([{force,true}])),
     ok = session_create(SRef, "table:test"),
 
     %% Insert/delete a key using the session handle
@@ -249,7 +254,7 @@ basic_test() ->
     ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
     {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
     ok = session_delete(SRef, "table:test", <<"a">>),
-    {error, not_found} = session_get(SRef, "table:test", <<"a">>),
+    not_found = session_get(SRef, "table:test", <<"a">>),
 
     %% Insert some items
     io:put_chars(standard_error, "\tsession insert\n"),
@@ -277,7 +282,7 @@ basic_test() ->
 
     io:put_chars(standard_error, "\tsession truncate\n"),
     ok = session_truncate(SRef, "table:test"),
-    {error, not_found} = session_get(SRef, "table:test", <<"a">>),
+    not_found = session_get(SRef, "table:test", <<"a">>),
 
     ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
     ok = session_put(SRef, "table:test", <<"b">>, <<"banana">>),
@@ -314,7 +319,7 @@ basic_test() ->
     {ok, <<"cherry">>} = cursor_prev(Cursor),
     {ok, <<"date">>} = cursor_next(Cursor),
     {ok, <<"gooseberry">>} = cursor_next(Cursor),
-    {error, not_found} = cursor_next(Cursor),
+    not_found = cursor_next(Cursor),
     ok = cursor_close(Cursor),
 
     %% Search for an item
@@ -352,7 +357,7 @@ basic_test() ->
     io:put_chars(standard_error, "\tcursor update\n"),
     {ok, Cursor} = cursor_open(SRef, "table:test"),
     ok = cursor_update(Cursor, <<"g">>, <<"goji berries">>),
-    {error, not_found} = cursor_update(Cursor, <<"k">>, <<"kumquat">>),
+    not_found = cursor_update(Cursor, <<"k">>, <<"kumquat">>),
     ok = cursor_close(Cursor),
     {ok, <<"goji berries">>} = session_get(SRef, "table:test", <<"g">>),
 
@@ -360,9 +365,9 @@ basic_test() ->
     io:put_chars(standard_error, "\tcursor remove\n"),
     {ok, Cursor} = cursor_open(SRef, "table:test"),
     ok = cursor_remove(Cursor, <<"g">>, <<"goji berries">>),
-    {error, not_found} = cursor_remove(Cursor, <<"l">>, <<"lemon">>),
+    not_found = cursor_remove(Cursor, <<"l">>, <<"lemon">>),
     ok = cursor_close(Cursor),
-    {error, not_found} = session_get(SRef, "table:test", <<"g">>),
+    not_found = session_get(SRef, "table:test", <<"g">>),
 
     %% Close the session/connection
     io:put_chars(standard_error, "\tsession/connection close\n"),
