@@ -186,28 +186,28 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
 	    int rc;
 	    switch (op) {
 	    case WTERL_OP_CREATE:
-              rc = session->create(session, uri, (const char*)config.data);
+		rc = session->create(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_DROP:
-              rc = session->drop(session, uri, (const char*)config.data);
+		rc = session->drop(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_SALVAGE:
-              rc = session->salvage(session, uri, (const char*)config.data);
+		rc = session->salvage(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_SYNC:
-              rc = session->sync(session, uri, (const char*)config.data);
+		rc = session->sync(session, uri, (const char*)config.data);
 		break;
 	    case WTERL_OP_TRUNCATE:
 		// Ignore the cursor start/stop form of truncation for now,
 		// support only the full file truncation.
-              rc = session->truncate(session, uri, NULL, NULL, (const char*)config.data);
+		rc = session->truncate(session, uri, NULL, NULL, (const char*)config.data);
 		break;
 	    case WTERL_OP_UPGRADE:
-              rc = session->upgrade(session, uri, (const char*)config.data);
+		rc = session->upgrade(session, uri, (const char*)config.data);
 		break;
 	    default:
 	    case WTERL_OP_VERIFY:
-              rc = session->verify(session, uri, (const char*)config.data);
+		rc = session->verify(session, uri, (const char*)config.data);
 		break;
 	    }
             if (rc != 0)
@@ -351,7 +351,7 @@ static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF
             raw_key.size = key.size;
             cursor->set_key(cursor, &raw_key);
             rc = cursor->remove(cursor);
-            cursor->close(cursor);
+            (void)cursor->close(cursor);
             if (rc != 0)
             {
 		return wterl_strerror(env, rc);
