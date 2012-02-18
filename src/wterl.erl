@@ -235,143 +235,209 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 %% ===================================================================
 -ifdef(TEST).
 
-basic_test() ->
-    %% Open a connection and a session, create the test table.
-    ok = filelib:ensure_dir(filename:join("/tmp/wterl.basic", "foo")),
+-define(TEST_DATA_DIR, "test/wterl.basic").
 
-    io:put_chars(standard_error, "\topen connection\n"),
+open_test_conn(DataDir) ->
+    ?assertCmd("rm -rf "++DataDir),
+    ?assertMatch(ok, filelib:ensure_dir(filename:join(DataDir, "x"))),
     OpenConfig = config_to_bin([{create,true},{cache_size,"100MB"}]),
-    {ok, ConnRef} = conn_open("/tmp/wterl.basic", OpenConfig),
+    {ok, ConnRef} = conn_open(DataDir, OpenConfig),
+    ConnRef.
+
+open_test_session(ConnRef) ->
     {ok, SRef} = session_open(ConnRef),
+    ?assertMatch(ok, session_drop(SRef, "table:test", config_to_bin([{force,true}]))),
+    ?assertMatch(ok, session_create(SRef, "table:test")),
+    SRef.
 
-    %% Remove the table from any earlier run and re-create it
-    io:put_chars(standard_error, "\ttable drop/create\n"),
-    ok = session_drop(SRef, "table:test", config_to_bin([{force,true}])),
-    ok = session_create(SRef, "table:test"),
+conn_test() ->
+    ConnRef = open_test_conn(?TEST_DATA_DIR),
+    ?assertMatch(ok, conn_close(ConnRef)).
 
-    %% Insert/delete a key using the session handle
-    io:put_chars(standard_error, "\tsession insert/delete\n"),
-    ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
-    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-    ok = session_delete(SRef, "table:test", <<"a">>),
-    not_found = session_get(SRef, "table:test", <<"a">>),
+session_test_() ->
+    {setup,
+     fun() ->
+             open_test_conn(?TEST_DATA_DIR)
+     end,
+     fun(ConnRef) ->
+             ok = conn_close(ConnRef)
+     end,
+     fun(ConnRef) ->
+             [{"open/close a session",
+               fun() ->
+                       {ok, SRef} = session_open(ConnRef),
+                       ?assertMatch(ok, session_close(SRef))
+               end},
+              {"create and drop a table",
+               fun() ->
+                       SRef = open_test_session(ConnRef),
+                       ?assertMatch(ok, session_drop(SRef, "table:test")),
+                       ?assertMatch(ok, session_close(SRef))
+               end}]
+     end}.
 
-    %% Insert some items
-    io:put_chars(standard_error, "\tsession insert\n"),
-    ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
-    ok = session_put(SRef, "table:test", <<"b">>, <<"banana">>),
-    ok = session_put(SRef, "table:test", <<"c">>, <<"cherry">>),
-    ok = session_put(SRef, "table:test", <<"d">>, <<"date">>),
-    ok = session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>),
-
-    %% Remaining session operations.
-    io:put_chars(standard_error, "\tsession verify\n"),
-    ok = session_verify(SRef, "table:test"),
-    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-
-    io:put_chars(standard_error, "\tsession sync\n"),
-    ok = session_sync(SRef, "table:test"),
-    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-
-    %% ===================================================================
-    %% KEITH: SKIP SALVAGE FOR NOW, THERE IS SOMETHING WRONG.
-    %% ===================================================================
-    %% io:put_chars(standard_error, "\tsession salvage\n"),
-    %% ok = session_salvage(SRef, "table:test"),
-    %% {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-
-    io:put_chars(standard_error, "\tsession truncate\n"),
-    ok = session_truncate(SRef, "table:test"),
-    not_found = session_get(SRef, "table:test", <<"a">>),
-
-    ok = session_put(SRef, "table:test", <<"a">>, <<"apple">>),
-    ok = session_put(SRef, "table:test", <<"b">>, <<"banana">>),
-    ok = session_put(SRef, "table:test", <<"c">>, <<"cherry">>),
-    ok = session_put(SRef, "table:test", <<"d">>, <<"date">>),
-    ok = session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>),
-
-    io:put_chars(standard_error, "\tsession upgrade\n"),
-    ok = session_upgrade(SRef, "table:test"),
-    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-
-    io:put_chars(standard_error, "\tsession rename\n"),
-    ok = session_rename(SRef, "table:test", "table:new"),
-    {ok, <<"apple">>} = session_get(SRef, "table:new", <<"a">>),
-    ok = session_rename(SRef, "table:new", "table:test"),
-    {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-
-    %% Open/close a pair of cursors, check first/last returns
-    io:put_chars(standard_error, "\tcursor open/close, first/last\n"),
-    {ok, Cursor1} = cursor_open(SRef, "table:test"),
-    {ok, <<"apple">>} = cursor_next(Cursor1),
-    ok = cursor_close(Cursor1),
-    {ok, Cursor2} = cursor_open(SRef, "table:test"),
-    {ok, <<"gooseberry">>} = cursor_prev(Cursor2),
-    ok = cursor_close(Cursor2),
-
-    %% Move a cursor back and forth
-    io:put_chars(standard_error, "\tcursor next/prev\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    {ok, <<"apple">>} = cursor_next(Cursor),
-    {ok, <<"banana">>} = cursor_next(Cursor),
-    {ok, <<"cherry">>} = cursor_next(Cursor),
-    {ok, <<"date">>} = cursor_next(Cursor),
-    {ok, <<"cherry">>} = cursor_prev(Cursor),
-    {ok, <<"date">>} = cursor_next(Cursor),
-    {ok, <<"gooseberry">>} = cursor_next(Cursor),
-    not_found = cursor_next(Cursor),
-    ok = cursor_close(Cursor),
-
-    %% Search for an item
-    io:put_chars(standard_error, "\tcursor search\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    {ok, <<"banana">>} = cursor_search(Cursor, <<"b">>),
-    ok = cursor_close(Cursor),
-
-    %% Range search for an item
-    io:put_chars(standard_error, "\tcursor search-near\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    {ok, <<"gooseberry">>} = cursor_search_near(Cursor, <<"z">>),
-    ok = cursor_close(Cursor),
-
-    %% Check that cursor reset works
-    io:put_chars(standard_error, "\tcursor reset\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    {ok, <<"apple">>} = cursor_next(Cursor),
-    ok = cursor_reset(Cursor),
-    {ok, <<"apple">>} = cursor_next(Cursor),
-    ok = cursor_close(Cursor),
-
-    %% Insert/overwrite an item using a cursor
-    io:put_chars(standard_error, "\tcursor insert/overwrite\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    ok = cursor_insert(Cursor, <<"h">>, <<"huckleberry">>),
-    {ok, <<"huckleberry">>} = cursor_search(Cursor, <<"h">>),
-    ok = cursor_insert(Cursor, <<"g">>, <<"grapefruit">>),
-    {ok, <<"grapefruit">>} = cursor_search(Cursor, <<"g">>),
-    ok = cursor_close(Cursor),
-    {ok, <<"grapefruit">>} = session_get(SRef, "table:test", <<"g">>),
-    {ok, <<"huckleberry">>} = session_get(SRef, "table:test", <<"h">>),
-
-    %% Update an item using a cursor
-    io:put_chars(standard_error, "\tcursor update\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    ok = cursor_update(Cursor, <<"g">>, <<"goji berries">>),
-    not_found = cursor_update(Cursor, <<"k">>, <<"kumquat">>),
-    ok = cursor_close(Cursor),
-    {ok, <<"goji berries">>} = session_get(SRef, "table:test", <<"g">>),
-
-    %% Remove an item using a cursor
-    io:put_chars(standard_error, "\tcursor remove\n"),
-    {ok, Cursor} = cursor_open(SRef, "table:test"),
-    ok = cursor_remove(Cursor, <<"g">>, <<"goji berries">>),
-    not_found = cursor_remove(Cursor, <<"l">>, <<"lemon">>),
-    ok = cursor_close(Cursor),
-    not_found = session_get(SRef, "table:test", <<"g">>),
-
-    %% Close the session/connection
-    io:put_chars(standard_error, "\tsession/connection close\n"),
+insert_delete_test() ->
+    ConnRef = open_test_conn(?TEST_DATA_DIR),
+    SRef = open_test_session(ConnRef),
+    ?assertMatch(ok, session_put(SRef, "table:test", <<"a">>, <<"apple">>)),
+    ?assertMatch({ok, <<"apple">>}, session_get(SRef, "table:test", <<"a">>)),
+    ?assertMatch(ok,  session_delete(SRef, "table:test", <<"a">>)),
+    ?assertMatch(not_found,  session_get(SRef, "table:test", <<"a">>)),
     ok = session_close(SRef),
     ok = conn_close(ConnRef).
+
+init_test_table() ->
+    ConnRef = open_test_conn(?TEST_DATA_DIR),
+    SRef = open_test_session(ConnRef),
+    ?assertMatch(ok, session_put(SRef, "table:test", <<"a">>, <<"apple">>)),
+    ?assertMatch(ok, session_put(SRef, "table:test", <<"b">>, <<"banana">>)),
+    ?assertMatch(ok, session_put(SRef, "table:test", <<"c">>, <<"cherry">>)),
+    ?assertMatch(ok, session_put(SRef, "table:test", <<"d">>, <<"date">>)),
+    ?assertMatch(ok, session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>)),
+    {ConnRef, SRef}.
+
+stop_test_table({ConnRef, SRef}) ->
+    ?assertMatch(ok, session_close(SRef)),
+    ?assertMatch(ok, conn_close(ConnRef)).
+
+various_session_test_() ->
+    {setup,
+     fun init_test_table/0,
+     fun stop_test_table/1,
+     fun({_, SRef}) ->
+             [{"session verify",
+               fun() ->
+                       ?assertMatch(ok, session_verify(SRef, "table:test")),
+                       ?assertMatch({ok, <<"apple">>},
+                                    session_get(SRef, "table:test", <<"a">>))
+               end},
+              {"session sync",
+               fun() ->
+                       ?assertMatch(ok, session_sync(SRef, "table:test")),
+                       ?assertMatch({ok, <<"apple">>},
+                                    session_get(SRef, "table:test", <<"a">>))
+               end},
+              {"session salvage",
+               fun() ->
+                       %% ===============================================================
+                       %% KEITH: SKIP SALVAGE FOR NOW, THERE IS SOMETHING WRONG.
+                       %% ===============================================================
+                       %% ok = session_salvage(SRef, "table:test"),
+                       %% {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
+                       ok
+               end},
+              {"session upgrade",
+               fun() ->
+                       ?assertMatch(ok, session_upgrade(SRef, "table:test")),
+                       ?assertMatch({ok, <<"apple">>},
+                                    session_get(SRef, "table:test", <<"a">>))
+               end},
+              {"session rename",
+               fun() ->
+                       ?assertMatch(ok,
+                                    session_rename(SRef, "table:test", "table:new")),
+                       ?assertMatch({ok, <<"apple">>},
+                                    session_get(SRef, "table:new", <<"a">>)),
+                       ?assertMatch(ok,
+                                    session_rename(SRef, "table:new", "table:test")),
+                       ?assertMatch({ok, <<"apple">>},
+                                    session_get(SRef, "table:test", <<"a">>))
+               end},
+              {"session truncate",
+               fun() ->
+                       ?assertMatch(ok, session_truncate(SRef, "table:test")),
+                       ?assertMatch(not_found, session_get(SRef, "table:test", <<"a">>))
+               end}]
+     end}.
+
+cursor_open_close_test() ->
+    {ConnRef, SRef} = init_test_table(),
+    {ok, Cursor1} = cursor_open(SRef, "table:test"),
+    ?assertMatch({ok, <<"apple">>}, cursor_next(Cursor1)),
+    ?assertMatch(ok, cursor_close(Cursor1)),
+    {ok, Cursor2} = cursor_open(SRef, "table:test"),
+    ?assertMatch({ok, <<"gooseberry">>}, cursor_prev(Cursor2)),
+    ?assertMatch(ok, cursor_close(Cursor2)),
+    stop_test_table({ConnRef, SRef}).
+
+various_cursor_test_() ->
+    {setup,
+     fun init_test_table/0,
+     fun stop_test_table/1,
+     fun({_, SRef}) ->
+             [{"move a cursor back and forth",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch({ok, <<"apple">>}, cursor_next(Cursor)),
+                       ?assertMatch({ok, <<"banana">>}, cursor_next(Cursor)),
+                       ?assertMatch({ok, <<"cherry">>}, cursor_next(Cursor)),
+                       ?assertMatch({ok, <<"date">>}, cursor_next(Cursor)),
+                       ?assertMatch({ok, <<"cherry">>}, cursor_prev(Cursor)),
+                       ?assertMatch({ok, <<"date">>}, cursor_next(Cursor)),
+                       ?assertMatch({ok, <<"gooseberry">>}, cursor_next(Cursor)),
+                       ?assertMatch(not_found, cursor_next(Cursor)),
+                       ?assertMatch(ok, cursor_close(Cursor))
+               end},
+              {"search for an item",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch({ok, <<"banana">>}, cursor_search(Cursor, <<"b">>)),
+                       ?assertMatch(ok, cursor_close(Cursor))
+               end},
+              {"range search for an item",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch({ok, <<"gooseberry">>},
+                                    cursor_search_near(Cursor, <<"z">>)),
+                       ?assertMatch(ok, cursor_close(Cursor))
+               end},
+              {"check cursor reset",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch({ok, <<"apple">>}, cursor_next(Cursor)),
+                       ?assertMatch(ok, cursor_reset(Cursor)),
+                       ?assertMatch({ok, <<"apple">>}, cursor_next(Cursor)),
+                       ?assertMatch(ok, cursor_close(Cursor))
+               end},
+              {"insert/overwrite an item using a cursor",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch(ok,
+                                    cursor_insert(Cursor, <<"h">>, <<"huckleberry">>)),
+                       ?assertMatch({ok, <<"huckleberry">>},
+                                    cursor_search(Cursor, <<"h">>)),
+                       ?assertMatch(ok,
+                                    cursor_insert(Cursor, <<"g">>, <<"grapefruit">>)),
+                       ?assertMatch({ok, <<"grapefruit">>},
+                                    cursor_search(Cursor, <<"g">>)),
+                       ?assertMatch(ok, cursor_close(Cursor)),
+                       ?assertMatch({ok, <<"grapefruit">>},
+                                    session_get(SRef, "table:test", <<"g">>)),
+                       ?assertMatch({ok, <<"huckleberry">>},
+                                    session_get(SRef, "table:test", <<"h">>))
+               end},
+              {"update an item using a cursor",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch(ok,
+                                    cursor_update(Cursor, <<"g">>, <<"goji berries">>)),
+                       ?assertMatch(not_found,
+                                    cursor_update(Cursor, <<"k">>, <<"kumquat">>)),
+                       ?assertMatch(ok, cursor_close(Cursor)),
+                       ?assertMatch({ok, <<"goji berries">>},
+                                    session_get(SRef, "table:test", <<"g">>))
+               end},
+              {"remove an item using a cursor",
+               fun() ->
+                       {ok, Cursor} = cursor_open(SRef, "table:test"),
+                       ?assertMatch(ok,
+                                    cursor_remove(Cursor, <<"g">>, <<"goji berries">>)),
+                       ?assertMatch(not_found,
+                                    cursor_remove(Cursor, <<"l">>, <<"lemon">>)),
+                       ?assertMatch(ok, cursor_close(Cursor)),
+                       ?assertMatch(not_found,
+                                    session_get(SRef, "table:test", <<"g">>))
+               end}]
+     end}.
 
 -endif.
