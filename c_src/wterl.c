@@ -52,22 +52,31 @@ typedef char Uri[128];					// object names
 static ERL_NIF_TERM ATOM_ERROR;
 static ERL_NIF_TERM ATOM_OK;
 
+typedef ERL_NIF_TERM (*CursorRetFun)(ErlNifEnv* env, WT_CURSOR* cursor, int rc);
+
 // Prototypes
 static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_insert(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_key_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc);
+static ERL_NIF_TERM wterl_cursor_kv_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc);
 static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int next);
+static ERL_NIF_TERM wterl_cursor_next_key(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_next_value(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[],
+                                           CursorRetFun cursor_ret_fun, int next);
 static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_prev(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_prev_key(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_prev_value(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_cursor_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc);
 static ERL_NIF_TERM wterl_cursor_search(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_search_near(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near);
 static ERL_NIF_TERM wterl_cursor_update(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM wterl_cursor_value_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc);
 static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
@@ -89,8 +98,12 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_close", 1, wterl_cursor_close},
     {"cursor_insert", 3, wterl_cursor_insert},
     {"cursor_next", 1, wterl_cursor_next},
+    {"cursor_next_key", 1, wterl_cursor_next_key},
+    {"cursor_next_value", 1, wterl_cursor_next_value},
     {"cursor_open", 2, wterl_cursor_open},
     {"cursor_prev", 1, wterl_cursor_prev},
+    {"cursor_prev_key", 1, wterl_cursor_prev_key},
+    {"cursor_prev_value", 1, wterl_cursor_prev_value},
     {"cursor_remove", 3, wterl_cursor_remove},
     {"cursor_reset", 1, wterl_cursor_reset},
     {"cursor_search", 2, wterl_cursor_search},
@@ -492,7 +505,48 @@ static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_T
     return enif_make_badarg(env);
 }
 
-static ERL_NIF_TERM wterl_cursor_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc)
+static ERL_NIF_TERM wterl_cursor_key_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc)
+{
+    if (rc == 0)
+    {
+	WT_ITEM raw_key;
+	rc = cursor->get_key(cursor, &raw_key);
+	if (rc == 0)
+	{
+	    ErlNifBinary key;
+	    enif_alloc_binary(raw_key.size, &key);
+	    memcpy(key.data, raw_key.data, raw_key.size);
+	    return enif_make_tuple2(env, ATOM_OK, enif_make_binary(env, &key));
+	}
+    }
+    return wterl_strerror(env, rc);
+}
+
+static ERL_NIF_TERM wterl_cursor_kv_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc)
+{
+    if (rc == 0)
+    {
+        WT_ITEM raw_key, raw_value;
+	rc = cursor->get_key(cursor, &raw_key);
+	if (rc == 0)
+	{
+            rc = cursor->get_value(cursor, &raw_value);
+            if (rc == 0)
+            {
+                ErlNifBinary key, value;
+                enif_alloc_binary(raw_key.size, &key);
+                memcpy(key.data, raw_key.data, raw_key.size);
+                enif_alloc_binary(raw_value.size, &value);
+                memcpy(value.data, raw_value.data, raw_value.size);
+                return enif_make_tuple3(env, ATOM_OK,
+                                        enif_make_binary(env, &key), enif_make_binary(env, &value));
+            }
+        }
+    }
+    return wterl_strerror(env, rc);
+}
+
+static ERL_NIF_TERM wterl_cursor_value_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc)
 {
     if (rc == 0)
     {
@@ -509,25 +563,46 @@ static ERL_NIF_TERM wterl_cursor_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc)
     return wterl_strerror(env, rc);
 }
 
-static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int prev)
+static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[],
+                                           CursorRetFun cursor_ret, int prev)
 {
     wterl_cursor_handle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
 	WT_CURSOR* cursor = cursor_handle->cursor;
-	return wterl_cursor_ret(env, cursor, prev == 0 ? cursor->next(cursor) : cursor->prev(cursor));
+	return cursor_ret(env, cursor, prev == 0 ? cursor->next(cursor) : cursor->prev(cursor));
     }
     return enif_make_badarg(env);
 }
 
 static ERL_NIF_TERM wterl_cursor_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    return wterl_cursor_np_worker(env, argc, argv, 0);
+    return wterl_cursor_np_worker(env, argc, argv, wterl_cursor_kv_ret, 0);
+}
+
+static ERL_NIF_TERM wterl_cursor_next_key(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return wterl_cursor_np_worker(env, argc, argv, wterl_cursor_key_ret, 0);
+}
+
+static ERL_NIF_TERM wterl_cursor_next_value(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return wterl_cursor_np_worker(env, argc, argv, wterl_cursor_value_ret, 0);
 }
 
 static ERL_NIF_TERM wterl_cursor_prev(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    return wterl_cursor_np_worker(env, argc, argv, 1);
+    return wterl_cursor_np_worker(env, argc, argv, wterl_cursor_kv_ret, 1);
+}
+
+static ERL_NIF_TERM wterl_cursor_prev_key(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return wterl_cursor_np_worker(env, argc, argv, wterl_cursor_key_ret, 1);
+}
+
+static ERL_NIF_TERM wterl_cursor_prev_value(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    return wterl_cursor_np_worker(env, argc, argv, wterl_cursor_value_ret, 1);
 }
 
 static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near)
@@ -546,9 +621,9 @@ static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const E
 
 	// We currently ignore the less-than, greater-than or equals-to return information
 	// from the cursor.search_near method.
-	return wterl_cursor_ret(env, cursor,
-				near == 1 ?
-				cursor->search_near(cursor, &exact) : cursor->search(cursor));
+	return wterl_cursor_value_ret(env, cursor,
+                                      near == 1 ?
+                                      cursor->search_near(cursor, &exact) : cursor->search(cursor));
     }
     return enif_make_badarg(env);
 }
