@@ -405,10 +405,9 @@ static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TE
 	    (void)cursor->close(cursor);
             if (rc == 0)
             {
-                ErlNifBinary value;
-                enif_alloc_binary(raw_value.size, &value);
-                memcpy(value.data, raw_value.data, raw_value.size);
-                return enif_make_tuple2(env, ATOM_OK, enif_make_binary(env, &value));
+		ERL_NIF_TERM value;
+		memcpy(enif_make_new_binary(env, raw_value.size, &value), raw_value.data, raw_value.size);
+		return enif_make_tuple2(env, ATOM_OK, value);
             }
             else
             {
@@ -513,10 +512,9 @@ static ERL_NIF_TERM wterl_cursor_key_ret(ErlNifEnv* env, WT_CURSOR *cursor, int 
 	rc = cursor->get_key(cursor, &raw_key);
 	if (rc == 0)
 	{
-	    ErlNifBinary key;
-	    enif_alloc_binary(raw_key.size, &key);
-	    memcpy(key.data, raw_key.data, raw_key.size);
-	    return enif_make_tuple2(env, ATOM_OK, enif_make_binary(env, &key));
+	    ERL_NIF_TERM key;
+	    memcpy(enif_make_new_binary(env, raw_key.size, &key), raw_key.data, raw_key.size);
+	    return enif_make_tuple2(env, ATOM_OK, key);
 	}
     }
     return wterl_strerror(env, rc);
@@ -533,13 +531,10 @@ static ERL_NIF_TERM wterl_cursor_kv_ret(ErlNifEnv* env, WT_CURSOR *cursor, int r
             rc = cursor->get_value(cursor, &raw_value);
             if (rc == 0)
             {
-                ErlNifBinary key, value;
-                enif_alloc_binary(raw_key.size, &key);
-                memcpy(key.data, raw_key.data, raw_key.size);
-                enif_alloc_binary(raw_value.size, &value);
-                memcpy(value.data, raw_value.data, raw_value.size);
-                return enif_make_tuple3(env, ATOM_OK,
-                                        enif_make_binary(env, &key), enif_make_binary(env, &value));
+		ERL_NIF_TERM key, value;
+		memcpy(enif_make_new_binary(env, raw_key.size, &key), raw_key.data, raw_key.size);
+		memcpy(enif_make_new_binary(env, raw_value.size, &value), raw_value.data, raw_value.size);
+		return enif_make_tuple3(env, ATOM_OK, key, value);
             }
         }
     }
@@ -554,10 +549,9 @@ static ERL_NIF_TERM wterl_cursor_value_ret(ErlNifEnv* env, WT_CURSOR *cursor, in
 	rc = cursor->get_value(cursor, &raw_value);
 	if (rc == 0)
 	{
-	    ErlNifBinary value;
-	    enif_alloc_binary(raw_value.size, &value);
-	    memcpy(value.data, raw_value.data, raw_value.size);
-	    return enif_make_tuple2(env, ATOM_OK, enif_make_binary(env, &value));
+	    ERL_NIF_TERM value;
+	    memcpy(enif_make_new_binary(env, raw_value.size, &value), raw_value.data, raw_value.size);
+	    return enif_make_tuple2(env, ATOM_OK, value);
 	}
     }
     return wterl_strerror(env, rc);
