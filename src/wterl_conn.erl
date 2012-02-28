@@ -29,8 +29,8 @@
 -endif.
 
 %% API
--export([start_link/0,
-         open/1, get/0, close/0]).
+-export([start_link/0, stop/0,
+         open/1, is_open/0, get/0, close/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -46,8 +46,14 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+stop() ->
+    gen_server:cast(?MODULE, stop).
+
 open(Dir) ->
     gen_server:call(?MODULE, {open, Dir, self()}, infinity).
+
+is_open() ->
+    gen_server:call(?MODULE, is_open, infinity).
 
 get() ->
     gen_server:call(?MODULE, get, infinity).
@@ -79,6 +85,9 @@ handle_call({open, _Dir, Caller}, _From,#state{conn=ConnRef, monitors=Monitors}=
     true = ets:insert(Monitors, {Monitor, Caller}),
     {reply, {ok, ConnRef}, State};
 
+handle_call(is_open, _From, #state{conn=ConnRef}=State) ->
+    {reply, ConnRef /= undefined, State};
+
 handle_call(get, _From, #state{conn=undefined}=State) ->
     {reply, {error, "no connection"}, State};
 handle_call(get, _From, #state{conn=ConnRef}=State) ->
@@ -98,6 +107,14 @@ handle_call({close, Caller}, _From, #state{conn=ConnRef, monitors=Monitors}=Stat
              end,
     {reply, ok, NState}.
 
+handle_cast(stop, #state{conn=undefined}=State) ->
+    {noreply, State};
+handle_cast(stop, #state{conn=ConnRef, monitors=Monitors}=State) ->
+    close(ConnRef),
+    ets:foldl(fun({Monitor, _}, _) ->
+                      true = erl:demonitor(Monitor, [flush])
+              end, true, Monitors),
+    {noreply, State#state{conn=undefined, monitors=undefined}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -139,5 +156,93 @@ close(ConnRef) ->
 
 -ifdef(TEST).
 
+-define(DATADIR, "test/wterl-backend").
+
+simple_test_() ->
+    {spawn,
+     [{setup,
+       fun() ->
+               ?assertCmd("rm -rf " ++ ?DATADIR),
+               ?assertMatch(ok, filelib:ensure_dir(filename:join(?DATADIR, "x"))),
+               {ok, Pid} = start_link(),
+               Pid
+       end,
+       fun(_) ->
+               stop()
+       end,
+       fun(_) ->
+               {inorder,
+                [{"open one connection",
+                  fun open_one/0},
+                 {"open two connections",
+                  fun open_two/0},
+                 {"open two connections, kill one",
+                  fun kill_one/0}
+                ]}
+       end}]}.
+
+open_one() ->
+    {ok, _Ref} = open("test/wterl-backend"),
+    true = is_open(),
+    close(),
+    false = is_open(),
+    ok.
+
+open_and_wait(Pid) ->
+    {ok, _Ref} = open("test/wterl-backend"),
+    Pid ! open,
+    receive
+        close ->
+            close(),
+            Pid ! close;
+        exit ->
+            exit(normal)
+    end.
+
+open_two() ->
+    Self = self(),
+    Pid1 = spawn_link(fun() -> open_and_wait(Self) end),
+    receive
+        open ->
+            true = is_open()
+    end,
+    Pid2 = spawn_link(fun() -> open_and_wait(Self) end),
+    receive
+        open ->
+            true = is_open()
+    end,
+    Pid1 ! close,
+    receive
+        close ->
+            true = is_open()
+    end,
+    Pid2 ! close,
+    receive
+        close ->
+            false = is_open()
+    end,
+    ok.
+
+kill_one() ->
+    Self = self(),
+    Pid1 = spawn_link(fun() -> open_and_wait(Self) end),
+    receive
+        open ->
+            true = is_open()
+    end,
+    Pid2 = spawn_link(fun() -> open_and_wait(Self) end),
+    receive
+        open ->
+            true = is_open()
+    end,
+    Pid1 ! exit,
+    timer:sleep(100),
+    true = is_open(),
+    Pid2 ! close,
+    receive
+        close ->
+            false = is_open()
+    end,
+    ok.
 
 -endif.
