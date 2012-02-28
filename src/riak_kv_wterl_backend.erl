@@ -441,27 +441,8 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
 %% ===================================================================
 %% EUnit tests
 %% ===================================================================
--ifdef(TESTX).
-
-simple_test_() ->
-    {setup,
-     fun() ->
-             ?assertCmd("rm -rf test/wterl-backend"),
-             application:set_env(wterl, data_root, "test/wterl-backend"),
-             application:start(wterl)
-     end,
-     fun(_) ->
-             application:stop(wterl)
-     end,
-     fun(_) ->
-             riak_kv_backend:standard_test(?MODULE, [])
-     end}.
-
--endif.
-
-
-
 -ifdef(TEST).
+
 simple_test_() ->
     {setup,
      fun() ->
