@@ -21,7 +21,7 @@
 %% -------------------------------------------------------------------
 
 -module(riak_kv_wterl_backend).
--behavior(riak_kv_backend).
+-behavior(temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
 
 %% KV Backend API
