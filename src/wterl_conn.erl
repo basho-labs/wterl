@@ -36,7 +36,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, { conn }).
+-record(state, {conn,
+                monitors}).
 
 %% ====================================================================
 %% API
@@ -46,13 +47,13 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 open(Dir) ->
-    gen_server:call(?MODULE, {open, Dir}, infinity).
+    gen_server:call(?MODULE, {open, Dir, self()}, infinity).
 
 get() ->
     gen_server:call(?MODULE, get, infinity).
 
 close() ->
-    gen_server:call(?MODULE, close, infinity).
+    gen_server:call(?MODULE, {close, self()}, infinity).
 
 %% ====================================================================
 %% gen_server callbacks
@@ -61,30 +62,61 @@ close() ->
 init([]) ->
     {ok, #state{}}.
 
-handle_call({open, Dir}, _From, #state{conn = undefined}=State) ->
+handle_call({open, Dir, Caller}, _From, #state{conn=undefined}=State) ->
     Opts = [{create, true}, {cache_size, "100MB"}],
     {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
                           {ok, ConnRef}=OK ->
-                              {OK, State#state{conn = ConnRef}};
+                              Monitors = ets:new(?MODULE, []),
+                              Monitor = erlang:monitor(process, Caller),
+                              true = ets:insert(Monitors, {Monitor, Caller}),
+                              {OK, State#state{conn = ConnRef, monitors=Monitors}};
                           Error ->
                               {Error, State}
                       end,
     {reply, Reply, NState};
-handle_call({open, _Dir}, _From,#state{conn = ConnRef}=State) ->
+handle_call({open, _Dir, Caller}, _From,#state{conn=ConnRef, monitors=Monitors}=State) ->
+    Monitor = erlang:monitor(process, Caller),
+    true = ets:insert(Monitors, {Monitor, Caller}),
     {reply, {ok, ConnRef}, State};
 
-handle_call(get, _From, #state{conn = undefined}=State) ->
+handle_call(get, _From, #state{conn=undefined}=State) ->
     {reply, {error, "no connection"}, State};
-handle_call(get, _From, #state{conn = ConnRef}=State) ->
+handle_call(get, _From, #state{conn=ConnRef}=State) ->
     {reply, {ok, ConnRef}, State};
 
-handle_call(close, _From, #state{conn = ConnRef}=State) ->
-    close(ConnRef),
-    {reply, ok, State}.
+handle_call({close, Caller}, _From, #state{conn=ConnRef, monitors=Monitors}=State) ->
+    {[{Monitor, Caller}], _} = ets:match_object(Monitors, {'_', Caller}, 1),
+    true = erlang:demonitor(Monitor, [flush]),
+    true = ets:delete(Monitors, Monitor),
+    NState = case ets:info(Monitors, size) of
+                 0 ->
+                     close(ConnRef),
+                     ets:delete(Monitors),
+                     State#state{conn=undefined, monitors=undefined};
+                 _ ->
+                     State
+             end,
+    {reply, ok, NState}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({'DOWN', Monitor, _, _, _}, #state{conn=ConnRef, monitors=Monitors}=State) ->
+    NState = case ets:lookup(Monitors, Monitor) of
+                 [{Monitor, _}] ->
+                     true = ets:delete(Monitors, Monitor),
+                     case ets:info(Monitors, size) of
+                         0 ->
+                             close(ConnRef),
+                             ets:delete(Monitors),
+                             State#state{conn=undefined, monitors=undefined};
+                         _ ->
+                             State
+                     end;
+                 _ ->
+                     State
+             end,
+    {noreply, NState};
 handle_info(_Info, State) ->
     {noreply, State}.
 
