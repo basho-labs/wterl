@@ -69,7 +69,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, Dir, Caller}, _From, #state{conn=undefined}=State) ->
-    Opts = [{create, true}, {cache_size, "100MB"}],
+    Opts = [{create, true}, {cache_size, "100MB"}, {session_max, 100}],
     {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
                           {ok, ConnRef}=OK ->
                               Monitors = ets:new(?MODULE, []),
