@@ -50,9 +50,9 @@
 %%-define(CAPABILITIES, [async_fold, indexes]).
 -define(CAPABILITIES, [async_fold]).
 
--record(state, {conn :: reference(),
+-record(state, {conn :: wterl:connection(),
                 table :: string(),
-                session :: reference(),
+                session :: wterl:session(),
                 partition :: integer()}).
 
 -type state() :: #state{}.
@@ -109,9 +109,9 @@ start(Partition, Config) ->
 
 %% @doc Stop the wterl backend
 -spec stop(state()) -> ok.
-stop(#state{session=SRef}) ->
+stop(#state{conn=ConnRef, session=SRef}) ->
     ok = wterl:session_close(SRef),
-    wterl_conn:close().
+    wterl_conn:close(ConnRef).
 
 %% @doc Retrieve an object from the wterl backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
@@ -246,7 +246,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
                 {ok, SRef} = wterl:session_open(ConnRef),
                 {ok, Cursor} = wterl:cursor_open(SRef, Table),
                 try
-                    wterl:fold(Cursor, FoldFun, Acc)
+                    wterl:fold_keys(Cursor, FoldFun, Acc)
                 catch
                     {break, AccFinal} ->
                         AccFinal

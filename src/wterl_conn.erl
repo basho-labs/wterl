@@ -30,35 +30,41 @@
 
 %% API
 -export([start_link/0, stop/0,
-         open/1, is_open/0, get/0, close/0]).
+         open/1, is_open/0, get/0, close/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {conn,
-                monitors}).
+-record(state, {conn :: reference(),
+                monitors :: ets:tid()}).
 
 %% ====================================================================
 %% API
 %% ====================================================================
 
+-spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec stop() -> ok.
 stop() ->
     gen_server:cast(?MODULE, stop).
 
+-spec open(string()) -> {ok, wterl:connection()} | {error, term()}.
 open(Dir) ->
     gen_server:call(?MODULE, {open, Dir, self()}, infinity).
 
+-spec is_open() -> boolean().
 is_open() ->
     gen_server:call(?MODULE, is_open, infinity).
 
+-spec get() -> {ok, reference()} | {error, term()}.
 get() ->
     gen_server:call(?MODULE, get, infinity).
 
-close() ->
+-spec close(wterl:connection()) -> ok.
+close(_Conn) ->
     gen_server:call(?MODULE, {close, self()}, infinity).
 
 %% ====================================================================
@@ -99,7 +105,7 @@ handle_call({close, Caller}, _From, #state{conn=ConnRef, monitors=Monitors}=Stat
     true = ets:delete(Monitors, Monitor),
     NState = case ets:info(Monitors, size) of
                  0 ->
-                     close(ConnRef),
+                     do_close(ConnRef),
                      ets:delete(Monitors),
                      State#state{conn=undefined, monitors=undefined};
                  _ ->
@@ -110,7 +116,7 @@ handle_call({close, Caller}, _From, #state{conn=ConnRef, monitors=Monitors}=Stat
 handle_cast(stop, #state{conn=undefined}=State) ->
     {noreply, State};
 handle_cast(stop, #state{conn=ConnRef, monitors=Monitors}=State) ->
-    close(ConnRef),
+    do_close(ConnRef),
     ets:foldl(fun({Monitor, _}, _) ->
                       true = erl:demonitor(Monitor, [flush])
               end, true, Monitors),
@@ -124,7 +130,7 @@ handle_info({'DOWN', Monitor, _, _, _}, #state{conn=ConnRef, monitors=Monitors}=
                      true = ets:delete(Monitors, Monitor),
                      case ets:info(Monitors, size) of
                          0 ->
-                             close(ConnRef),
+                             do_close(ConnRef),
                              ets:delete(Monitors),
                              State#state{conn=undefined, monitors=undefined};
                          _ ->
@@ -138,7 +144,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{conn = ConnRef}) ->
-    close(ConnRef),
+    do_close(ConnRef),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -148,9 +154,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %% ====================================================================
 
-close(undefined) ->
+do_close(undefined) ->
     ok;
-close(ConnRef) ->
+do_close(ConnRef) ->
     wterl:conn_close(ConnRef).
 
 
@@ -182,18 +188,18 @@ simple_test_() ->
        end}]}.
 
 open_one() ->
-    {ok, _Ref} = open("test/wterl-backend"),
+    {ok, Ref} = open("test/wterl-backend"),
     true = is_open(),
-    close(),
+    close(Ref),
     false = is_open(),
     ok.
 
 open_and_wait(Pid) ->
-    {ok, _Ref} = open("test/wterl-backend"),
+    {ok, Ref} = open("test/wterl-backend"),
     Pid ! open,
     receive
         close ->
-            close(),
+            close(Ref),
             Pid ! close;
         exit ->
             exit(normal)
