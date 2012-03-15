@@ -425,175 +425,35 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
 -ifdef(TEST).
 
 simple_test_() ->
+    {spawn, [{setup, SF, CF, TF}]} = riak_kv_backend:standard_test(?MODULE, []),
     {setup,
      fun() ->
              ?assertCmd("rm -rf test/wterl-backend"),
              application:set_env(wterl, data_root, "test/wterl-backend"),
              application:start(wterl),
-             {ok, S} = ?MODULE:start(42, []),
-             S
+             SF()
      end,
-     fun(S) ->
-             ?MODULE:stop(S),
+     fun(X) ->
+             CF(X),
              application:stop(wterl)
      end,
-     fun(State) ->
-             [{"basic store and fetch test",
-               fun() ->
-                       [
-                        ?assertMatch({ok, _},
-                                     ?MODULE:put(<<"b1">>, <<"k1">>, [], <<"v1">>, State)),
-                        ?assertMatch({ok, _},
-                                     ?MODULE:put(<<"b2">>, <<"k2">>, [], <<"v2">>, State)),
-                        ?assertMatch({ok,<<"v2">>, _},
-                                     ?MODULE:get(<<"b2">>, <<"k2">>, State)),
-                        ?assertMatch({error, not_found, _},
-                                     ?MODULE:get(<<"b1">>, <<"k3">>, State))
-                       ]
-               end},
-              {"object deletion test",
-               fun() ->
-                       [
-                        ?assertMatch({ok, _},
-                                     ?MODULE:delete(<<"b2">>, <<"k2">>, [], State)),
-                        ?assertMatch({error, not_found, _},
-                                     ?MODULE:get(<<"b2">>, <<"k2">>, State))
-                       ]
-               end
-              },
-              {"is_empty test",
-               fun() ->
-                       [
-                        ?_assertEqual(false, ?MODULE:is_empty(State)),
-                        ?_assertMatch({ok, _}, ?MODULE:delete(<<"b1">>,<<"k1">>, State)),
-                        ?_assertMatch({ok, _}, ?MODULE:delete(<<"b3">>,<<"k3">>, State)),
-                        ?_assertEqual(true, ?MODULE:is_empty(State))
-                       ]
-               end},
-              {"bucket folding test",
-               fun() ->
-                       FoldBucketsFun =
-                           fun(Bucket, Acc) ->
-                                   [Bucket | Acc]
-                           end,
+     fun(X) -> TF(X) end}.
 
-                       ?_assertEqual([<<"b1">>, <<"b2">>],
-                                     begin
-                                         {ok, Buckets1} =
-                                             ?MODULE:fold_buckets(FoldBucketsFun,
-                                                                  [],
-                                                                  [],
-                                                                  State),
-                                         lists:sort(Buckets1)
-                                     end)
-               end},
-              {"key folding test",
-               fun() ->
-                       FoldKeysFun =
-                           fun(Bucket, Key, Acc) ->
-                                   [{Bucket, Key} | Acc]
-                           end,
-                       FoldKeysFun1 =
-                           fun(_Bucket, Key, Acc) ->
-                                   [Key | Acc]
-                           end,
-                       FoldKeysFun2 =
-                           fun(Bucket, Key, Acc) ->
-                                   case Bucket =:= <<"b1">> of
-                                       true ->
-                                           [Key | Acc];
-                                       false ->
-                                           Acc
-                                   end
-                           end,
-                       FoldKeysFun3 =
-                           fun(Bucket, Key, Acc) ->
-                                   case Bucket =:= <<"b1">> of
-                                       true ->
-                                           Acc;
-                                       false ->
-                                           [Key | Acc]
-                                   end
-                           end,
-                       [
-                        ?_assertEqual([{<<"b1">>, <<"k1">>}, {<<"b2">>, <<"k2">>}],
-                                      begin
-                                          {ok, Keys1} =
-                                              ?MODULE:fold_keys(FoldKeysFun,
-                                                                [],
-                                                                [],
-                                                                State),
-                                          lists:sort(Keys1)
-                                      end),
-                        ?_assertEqual({ok, [<<"k1">>]},
-                                      ?MODULE:fold_keys(FoldKeysFun1,
-                                                        [],
-                                                        [{bucket, <<"b1">>}],
-                                                        State)),
-                        ?_assertEqual([<<"k2">>],
-                                      ?MODULE:fold_keys(FoldKeysFun1,
-                                                        [],
-                                                        [{bucket, <<"b2">>}],
-                                                        State)),
-                        ?_assertEqual({ok, [<<"k1">>]},
-                                      ?MODULE:fold_keys(FoldKeysFun2, [], [], State)),
-                        ?_assertEqual({ok, [<<"k1">>]},
-                                      ?MODULE:fold_keys(FoldKeysFun2,
-                                                        [],
-                                                        [{bucket, <<"b1">>}],
-                                                        State)),
-                        ?_assertEqual({ok, [<<"k2">>]},
-                                      ?MODULE:fold_keys(FoldKeysFun3, [], [], State)),
-                        ?_assertEqual({ok, []},
-                                      ?MODULE:fold_keys(FoldKeysFun3,
-                                                        [],
-                                                        [{bucket, <<"b1">>}],
-                                                        State))
-                       ]
-               end},
-              {"object folding test",
-               fun() ->
-                       FoldKeysFun =
-                           fun(Bucket, Key, Acc) ->
-                                   [{Bucket, Key} | Acc]
-                           end,
-                       FoldObjectsFun =
-                           fun(Bucket, Key, Value, Acc) ->
-                                   [{{Bucket, Key}, Value} | Acc]
-                           end,
-                       [
-                        ?_assertEqual([{<<"b1">>, <<"k1">>}],
-                                      begin
-                                          {ok, Keys} =
-                                              ?MODULE:fold_keys(FoldKeysFun,
-                                                                [],
-                                                                [],
-                                                                State),
-                                          lists:sort(Keys)
-                                      end),
+custom_config_test_() ->
+    {spawn, [{setup, SF, CF, TF}]} = riak_kv_backend:standard_test(
+                                       ?MODULE,
+                                       [{data_root, "test/wterl-backend"}]),
+    {setup,
+     fun() ->
+             ?assertCmd("rm -rf test/wterl-backend"),
+             application:set_env(wterl, data_root, ""),
+             application:start(wterl),
+             SF()
+     end,
+     fun(X) ->
+             CF(X),
+             application:stop(wterl)
+     end,
+     fun(X) -> TF(X) end}.
 
-                        ?_assertEqual([{{<<"b1">>,<<"k1">>}, <<"v1">>}],
-                                      begin
-                                          {ok, Objects1} =
-                                              ?MODULE:fold_objects(FoldObjectsFun,
-                                                                   [],
-                                                                   [],
-                                                                   State),
-                                          lists:sort(Objects1)
-                                      end),
-                        ?_assertMatch({ok, _},
-                                      ?MODULE:put(<<"b3">>, <<"k3">>, [], <<"v3">>, State)),
-                        ?_assertEqual([{{<<"b1">>,<<"k1">>},<<"v1">>},
-                                       {{<<"b3">>,<<"k3">>},<<"v3">>}],
-                                      begin
-                                          {ok, Objects} =
-                                              ?MODULE:fold_objects(FoldObjectsFun,
-                                                                   [],
-                                                                   [],
-                                                                   State),
-                                          lists:sort(Objects)
-                                      end)
-                       ]
-               end}]
-     end}.
 -endif.
