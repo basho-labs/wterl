@@ -246,7 +246,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
                 {ok, SRef} = wterl:session_open(ConnRef),
                 {ok, Cursor} = wterl:cursor_open(SRef, Table),
                 try
-                    wterl:fold_keys(Cursor, FoldFun, Acc)
+                    wterl:fold(Cursor, FoldFun, Acc)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -265,8 +265,12 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
 %% @doc Delete all objects from this wterl backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
 drop(#state{table=Table, session=SRef}=State) ->
-    ok = wterl:session_truncate(SRef, Table),
-    {ok, State}.
+    case wterl:session_truncate(SRef, Table) of
+        ok ->
+            {ok, State};
+        Error ->
+            {error, Error, State}
+    end.
 
 %% @doc Returns true if this wterl backend contains any
 %% non-tombstone values; otherwise returns false.

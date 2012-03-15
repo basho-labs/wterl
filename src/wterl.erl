@@ -58,7 +58,8 @@
          session_verify/2,
          session_verify/3,
          config_to_bin/1,
-         fold_keys/3]).
+         fold_keys/3,
+         fold/3]).
 
 -type config() :: binary().
 -type config_list() :: [{atom(), any()}].
@@ -92,7 +93,7 @@ init() ->
                   Path ->
                       Path
               end,
-    erlang:load_nif(filename:join(PrivDir, ?MODULE), 0).
+    erlang:load_nif(filename:join(PrivDir, atom_to_list(?MODULE)), 0).
 
 -spec conn_open(string(), config()) -> {ok, connection()} | {error, term()}.
 conn_open(_HomeDir, _Config) ->
@@ -102,7 +103,7 @@ conn_open(_HomeDir, _Config) ->
 conn_close(_ConnRef) ->
     ?nif_stub.
 
--spec session_open(connection()) -> {ok, reference()} | {error, term()}.
+-spec session_open(connection()) -> {ok, session()} | {error, term()}.
 session_open(_ConnRef) ->
     ?nif_stub.
 
@@ -234,7 +235,9 @@ cursor_update(_Cursor, _Key, _Value) ->
 cursor_remove(_Cursor, _Key, _Value) ->
     ?nif_stub.
 
--spec fold_keys(cursor(), fun(), any()) -> any().
+-type fold_keys_fun() :: fun((Key::binary(), any()) -> any()).
+
+-spec fold_keys(cursor(), fold_keys_fun(), any()) -> any().
 fold_keys(Cursor, Fun, Acc0) ->
     fold_keys(Cursor, Fun, Acc0, cursor_next_key(Cursor)).
 fold_keys(_Cursor, _Fun, Acc, not_found) ->
@@ -242,6 +245,15 @@ fold_keys(_Cursor, _Fun, Acc, not_found) ->
 fold_keys(Cursor, Fun, Acc, {ok, Key}) ->
     fold_keys(Cursor, Fun, Fun(Key, Acc), cursor_next_key(Cursor)).
 
+-type fold_fun() :: fun(({Key::binary(), Value::binary()}, any()) -> any()).
+
+-spec fold(cursor(), fold_fun(), any()) -> any().
+fold(Cursor, Fun, Acc0) ->
+    fold(Cursor, Fun, Acc0, cursor_next(Cursor)).
+fold(_Cursor, _Fun, Acc, not_found) ->
+    Acc;
+fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
+    fold(Cursor, Fun, Fun({Key, Value}, Acc), cursor_next(Cursor)).
 
 %%
 %% Configuration type information.
