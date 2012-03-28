@@ -2,7 +2,7 @@
 
 set -e
 
-WT_VSN=1.1.1
+WT_VSN=1.1.2
 
 if [ `basename $PWD` != "c_src" ]; then
     pushd c_src
