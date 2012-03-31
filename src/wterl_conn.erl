@@ -170,8 +170,12 @@ simple_test_() ->
        fun() ->
                ?assertCmd("rm -rf " ++ ?DATADIR),
                ?assertMatch(ok, filelib:ensure_dir(filename:join(?DATADIR, "x"))),
-               {ok, Pid} = start_link(),
-               Pid
+               case start_link() of
+                   {ok, Pid} ->
+                       Pid;
+                   {error, {already_started, Pid}} ->
+                       Pid
+               end
        end,
        fun(_) ->
                stop()

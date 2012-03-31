@@ -87,23 +87,37 @@ start(Partition, Config) ->
             lager:error("Failed to create wterl dir: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
-            ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
-            case wterl_conn:open(DataRoot) of
-                {ok, ConnRef} ->
-                    Table = "table:wt" ++ integer_to_list(Partition),
-                    {ok, SRef} = wterl:session_open(ConnRef),
-                    %% TODO: should check return value here, but we
-                    %% currently get an error when the table already
-                    %% exists, so for now we ignore it.
-                    wterl:session_create(SRef, Table),
-                    {ok, #state{conn=ConnRef,
-                                table=Table,
-                                session=SRef,
-                                partition=Partition}};
-                {error, Reason} ->
-                    lager:error("Failed to start wterl backend: ~p\n",
-                                [Reason]),
-                    {error, Reason}
+            AppStart = case application:start(wterl) of
+                           ok ->
+                               ok;
+                           {error, {already_started, _}} ->
+                               ok;
+                           {error, Reason} ->
+                               lager:error("Failed to start wterl: ~p", [Reason]),
+                               {error, Reason}
+                       end,
+            case AppStart of
+                ok ->
+                    ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
+                    case wterl_conn:open(DataRoot) of
+                        {ok, ConnRef} ->
+                            Table = "table:wt" ++ integer_to_list(Partition),
+                            {ok, SRef} = wterl:session_open(ConnRef),
+                            %% TODO: should check return value here, but we
+                            %% currently get an error when the table already
+                            %% exists, so for now we ignore it.
+                            wterl:session_create(SRef, Table),
+                            {ok, #state{conn=ConnRef,
+                                        table=Table,
+                                        session=SRef,
+                                        partition=Partition}};
+                        {error, ConnReason}=ConnError ->
+                            lager:error("Failed to start wterl backend: ~p\n",
+                                        [ConnReason]),
+                            ConnError
+                    end;
+                Error ->
+                    Error
             end
     end.
 
@@ -425,35 +439,13 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    {spawn, [{setup, SF, CF, TF}]} = riak_kv_backend:standard_test(?MODULE, []),
-    {setup,
-     fun() ->
-             ?assertCmd("rm -rf test/wterl-backend"),
-             application:set_env(wterl, data_root, "test/wterl-backend"),
-             application:start(wterl),
-             SF()
-     end,
-     fun(X) ->
-             CF(X),
-             application:stop(wterl)
-     end,
-     fun(X) -> TF(X) end}.
+    ?assertCmd("rm -rf test/wterl-backend"),
+    application:set_env(wterl, data_root, "test/wterl-backend"),
+    riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    {spawn, [{setup, SF, CF, TF}]} = riak_kv_backend:standard_test(
-                                       ?MODULE,
-                                       [{data_root, "test/wterl-backend"}]),
-    {setup,
-     fun() ->
-             ?assertCmd("rm -rf test/wterl-backend"),
-             application:set_env(wterl, data_root, ""),
-             application:start(wterl),
-             SF()
-     end,
-     fun(X) ->
-             CF(X),
-             application:stop(wterl)
-     end,
-     fun(X) -> TF(X) end}.
+    ?assertCmd("rm -rf test/wterl-backend"),
+    application:set_env(wterl, data_root, ""),
+    riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).
 
 -endif.
