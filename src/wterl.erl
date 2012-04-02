@@ -61,6 +61,15 @@
          fold_keys/3,
          fold/3]).
 
+-ifdef(TEST).
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-define(QC_OUT(P),
+        eqc:on_output(fun(Str, Args) -> io:format(user, Str, Args) end, P)).
+-endif.
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -type config() :: binary().
 -type config_list() :: [{atom(), any()}].
 -opaque connection() :: reference().
@@ -78,10 +87,6 @@ nif_stub_error(Line) ->
     erlang:nif_error({nif_not_loaded,module,?MODULE,line,Line}).
 
 -define(EMPTY_CONFIG, <<"\0">>).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -spec init() -> ok | {error, any()}.
 init() ->
@@ -561,5 +566,69 @@ various_cursor_test_() ->
                                      session_get(SRef, "table:test", <<"g">>))
                 end}]}
      end}.
+
+-ifdef(EQC).
+
+qc(P) ->
+    ?assert(eqc:quickcheck(?QC_OUT(P))).
+
+keys() ->
+    eqc_gen:non_empty(list(eqc_gen:non_empty(binary()))).
+
+values() ->
+    eqc_gen:non_empty(list(binary())).
+
+ops(Keys, Values) ->
+    {oneof([put, delete]), oneof(Keys), oneof(Values)}.
+
+apply_kv_ops([], _SRef, _Tbl, Acc0) ->
+    Acc0;
+apply_kv_ops([{put, K, V} | Rest], SRef, Tbl, Acc0) ->
+    ok = wterl:session_put(SRef, Tbl, K, V),
+    apply_kv_ops(Rest, SRef, Tbl, orddict:store(K, V, Acc0));
+apply_kv_ops([{delete, K, _} | Rest], SRef, Tbl, Acc0) ->
+    ok = case wterl:session_delete(SRef, Tbl, K) of
+             ok ->
+                 ok;
+             not_found ->
+                 ok;
+             Else ->
+                 Else
+         end,
+    apply_kv_ops(Rest, SRef, Tbl, orddict:store(K, deleted, Acc0)).
+
+prop_put_delete() ->
+    ?LET({Keys, Values}, {keys(), values()},
+         ?FORALL(Ops, eqc_gen:non_empty(list(ops(Keys, Values))),
+                 begin
+                     DataDir = "/tmp/wterl.putdelete.qc",
+                     Table = "table:eqc",
+                     ?cmd("rm -rf "++DataDir),
+                     ok = filelib:ensure_dir(filename:join(DataDir, "x")),
+                     Cfg = wterl:config_to_bin([{create,true}]),
+                     {ok, Conn} = wterl:conn_open(DataDir, Cfg),
+                     {ok, SRef} = wterl:session_open(Conn),
+                     try
+                         wterl:session_create(SRef, Table),
+                         Model = apply_kv_ops(Ops, SRef, Table, []),
+
+                         %% Validate that all deleted values return not_found
+                         F = fun({K, deleted}) ->
+                                     ?assertEqual(not_found, wterl:session_get(SRef, Table, K));
+                                ({K, V}) ->
+                                     ?assertEqual({ok, V}, wterl:session_get(SRef, Table, K))
+                             end,
+                         lists:map(F, Model),
+                         true
+                     after
+                         wterl:session_close(SRef),
+                         wterl:conn_close(Conn)
+                     end
+                 end)).
+
+prop_put_delete_test_() ->
+    {timeout, 3*60, fun() -> qc(prop_put_delete()) end}.
+
+-endif.
 
 -endif.
