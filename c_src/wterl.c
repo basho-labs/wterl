@@ -31,20 +31,17 @@ static ErlNifResourceType* wterl_conn_RESOURCE;
 static ErlNifResourceType* wterl_session_RESOURCE;
 static ErlNifResourceType* wterl_cursor_RESOURCE;
 
-typedef struct
-{
+typedef struct {
     WT_CONNECTION* conn;
-} wterl_conn_handle;
+} WterlConnHandle;
 
-typedef struct
-{
+typedef struct {
     WT_SESSION* session;
-} wterl_session_handle;
+} WterlSessionHandle;
 
-typedef struct
-{
+typedef struct {
     WT_CURSOR* cursor;
-} wterl_cursor_handle;
+} WterlCursorHandle;
 
 typedef char Uri[128];					// object names
 
@@ -126,11 +123,10 @@ static ErlNifFunc nif_funcs[] =
 
 static inline ERL_NIF_TERM wterl_strerror(ErlNifEnv* env, int rc)
 {
-    if (rc == WT_NOTFOUND)
-	return enif_make_atom(env, "not_found");
-    else
-	return enif_make_tuple2(env, ATOM_ERROR,
-			        enif_make_string(env, wiredtiger_strerror(rc), ERL_NIF_LATIN1));
+    return rc == WT_NOTFOUND ?
+        enif_make_atom(env, "not_found") :
+        enif_make_tuple2(env, ATOM_ERROR,
+                         enif_make_string(env, wiredtiger_strerror(rc), ERL_NIF_LATIN1));
 }
 
 static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -144,8 +140,7 @@ static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM
         int rc = wiredtiger_open(homedir, NULL, (const char*)config.data, &conn);
         if (rc == 0)
         {
-            wterl_conn_handle* conn_handle =
-		enif_alloc_resource(wterl_conn_RESOURCE, sizeof(wterl_conn_handle));
+            WterlConnHandle* conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
             conn_handle->conn = conn;
             ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
             enif_release_resource(conn_handle);
@@ -161,18 +156,12 @@ static ERL_NIF_TERM wterl_conn_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM
 
 static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_conn_handle* conn_handle;
+    WterlConnHandle* conn_handle;
     if (enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&conn_handle))
     {
         WT_CONNECTION* conn = conn_handle->conn;
         int rc = conn->close(conn, NULL);
-        if (rc != 0)
-        {
-	    return wterl_strerror(env, rc);
-        }
-	else {
-		return ATOM_OK;
-	}
+        return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
     }
     return enif_make_badarg(env);
 }
@@ -187,7 +176,7 @@ static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TER
 
 static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int op)
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
         WT_SESSION* session = session_handle->session;
@@ -197,7 +186,8 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
             enif_inspect_binary(env, argv[2], &config))
         {
 	    int rc;
-	    switch (op) {
+	    switch (op)
+            {
 	    case WTERL_OP_CREATE:
 		rc = session->create(session, uri, (const char*)config.data);
 		break;
@@ -218,19 +208,12 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
 	    case WTERL_OP_UPGRADE:
 		rc = session->upgrade(session, uri, (const char*)config.data);
 		break;
-	    default:
 	    case WTERL_OP_VERIFY:
+	    default:
 		rc = session->verify(session, uri, (const char*)config.data);
 		break;
 	    }
-            if (rc != 0)
-            {
-		return wterl_strerror(env, rc);
-            }
-	    else
-	    {
-		return ATOM_OK;
-	    }
+            return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
     return enif_make_badarg(env);
@@ -238,7 +221,7 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
 
 static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_conn_handle* conn_handle;
+    WterlConnHandle* conn_handle;
     if (enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&conn_handle))
     {
         WT_CONNECTION* conn = conn_handle->conn;
@@ -246,8 +229,8 @@ static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_T
         int rc = conn->open_session(conn, NULL, NULL, &session);
         if (rc == 0)
         {
-            wterl_session_handle* session_handle =
-		enif_alloc_resource(wterl_session_RESOURCE, sizeof(wterl_session_handle));
+            WterlSessionHandle* session_handle =
+                enif_alloc_resource(wterl_session_RESOURCE, sizeof(WterlSessionHandle));
             session_handle->session = session;
             ERL_NIF_TERM result = enif_make_resource(env, session_handle);
             enif_keep_resource(conn_handle);
@@ -264,19 +247,12 @@ static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_T
 
 static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
         WT_SESSION* session = session_handle->session;
         int rc = session->close(session, NULL);
-        if (rc != 0)
-        {
-	    return wterl_strerror(env, rc);
-        }
-	else
-	{
-	    return ATOM_OK;
-	}
+        return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
     }
     return enif_make_badarg(env);
 }
@@ -293,25 +269,18 @@ static ERL_NIF_TERM wterl_session_drop(ErlNifEnv* env, int argc, const ERL_NIF_T
 
 static ERL_NIF_TERM wterl_session_rename(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
-        WT_SESSION* session = session_handle->session;
         ErlNifBinary config;
         Uri oldname, newname;
         if (enif_get_string(env, argv[1], oldname, sizeof oldname, ERL_NIF_LATIN1) &&
             enif_get_string(env, argv[2], newname, sizeof newname, ERL_NIF_LATIN1) &&
             enif_inspect_binary(env, argv[3], &config))
         {
-          int rc = session->rename(session, oldname, newname, (const char*)config.data);
-            if (rc != 0)
-            {
-		return wterl_strerror(env, rc);
-            }
-	    else
-	    {
-		return ATOM_OK;
-	    }
+            WT_SESSION* session = session_handle->session;
+            int rc = session->rename(session, oldname, newname, (const char*)config.data);
+            return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
     return enif_make_badarg(env);
@@ -344,15 +313,15 @@ static ERL_NIF_TERM wterl_session_verify(ErlNifEnv* env, int argc, const ERL_NIF
 
 static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
-        WT_SESSION* session = session_handle->session;
         Uri uri;
         ErlNifBinary key;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1) &&
             enif_inspect_binary(env, argv[2], &key))
         {
+            WT_SESSION* session = session_handle->session;
             WT_CURSOR* cursor;
             int rc = session->open_cursor(session, uri, NULL, "raw", &cursor);
             if (rc != 0)
@@ -365,14 +334,7 @@ static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF
             cursor->set_key(cursor, &raw_key);
             rc = cursor->remove(cursor);
             (void)cursor->close(cursor);
-            if (rc != 0)
-            {
-		return wterl_strerror(env, rc);
-            }
-	    else
-	    {
-		return ATOM_OK;
-	    }
+            return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
     return enif_make_badarg(env);
@@ -380,15 +342,15 @@ static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF
 
 static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
-        WT_SESSION* session = session_handle->session;
         Uri uri;
         ErlNifBinary key;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1) &&
             enif_inspect_binary(env, argv[2], &key))
         {
+            WT_SESSION* session = session_handle->session;
             WT_CURSOR* cursor;
             int rc = session->open_cursor(session, uri, NULL, "overwrite,raw", &cursor);
             if (rc != 0)
@@ -401,7 +363,9 @@ static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TE
             cursor->set_key(cursor, &raw_key);
             rc = cursor->search(cursor);
 	    if (rc == 0)
+            {
                 rc = cursor->get_value(cursor, &raw_value);
+            }
 	    (void)cursor->close(cursor);
             if (rc == 0)
             {
@@ -420,16 +384,16 @@ static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
 static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
-        WT_SESSION* session = session_handle->session;
         Uri uri;
         ErlNifBinary key, value;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1) &&
             enif_inspect_binary(env, argv[2], &key) &&
 	    enif_inspect_binary(env, argv[3], &value))
         {
+            WT_SESSION* session = session_handle->session;
             WT_CURSOR* cursor;
             int rc = session->open_cursor(session, uri, NULL, "overwrite,raw", &cursor);
             if (rc != 0)
@@ -445,11 +409,7 @@ static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TE
             cursor->set_value(cursor, &raw_value);
             rc = cursor->insert(cursor);
             (void)cursor->close(cursor);
-            if (rc != 0)
-            {
-		return wterl_strerror(env, rc);
-            }
-            return ATOM_OK;
+            return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
     return enif_make_badarg(env);
@@ -457,27 +417,27 @@ static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
 static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_session_handle* session_handle;
+    WterlSessionHandle* session_handle;
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
-	WT_SESSION* session = session_handle->session;
 	WT_CURSOR* cursor;
 	Uri uri;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1))
-	{
+        {
+            WT_SESSION* session = session_handle->session;
 	    int rc = session->open_cursor(session, uri, NULL, "overwrite,raw", &cursor);
 	    if (rc == 0)
-	    {
-		wterl_cursor_handle* cursor_handle =
-			enif_alloc_resource(wterl_cursor_RESOURCE, sizeof(wterl_cursor_handle));
+            {
+		WterlCursorHandle* cursor_handle =
+                    enif_alloc_resource(wterl_cursor_RESOURCE, sizeof(WterlCursorHandle));
 		cursor_handle->cursor = cursor;
 		ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);
 		enif_keep_resource(session_handle);
 		enif_release_resource(cursor_handle);
 		return enif_make_tuple2(env, ATOM_OK, result);
 	    }
-	    else
-	    {
+            else
+            {
 		return wterl_strerror(env, rc);
 	    }
 	}
@@ -487,19 +447,12 @@ static ERL_NIF_TERM wterl_cursor_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
 static ERL_NIF_TERM wterl_cursor_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_cursor_handle *cursor_handle;
+    WterlCursorHandle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
 	WT_CURSOR* cursor = cursor_handle->cursor;
         int rc = cursor->close(cursor);
-        if (rc == 0)
-        {
-            return ATOM_OK;
-        }
-        else
-        {
-	    return wterl_strerror(env, rc);
-        }
+        return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
     }
     return enif_make_badarg(env);
 }
@@ -511,7 +464,7 @@ static ERL_NIF_TERM wterl_cursor_key_ret(ErlNifEnv* env, WT_CURSOR *cursor, int 
 	WT_ITEM raw_key;
 	rc = cursor->get_key(cursor, &raw_key);
 	if (rc == 0)
-	{
+        {
 	    ERL_NIF_TERM key;
 	    memcpy(enif_make_new_binary(env, raw_key.size, &key), raw_key.data, raw_key.size);
 	    return enif_make_tuple2(env, ATOM_OK, key);
@@ -527,7 +480,7 @@ static ERL_NIF_TERM wterl_cursor_kv_ret(ErlNifEnv* env, WT_CURSOR *cursor, int r
         WT_ITEM raw_key, raw_value;
 	rc = cursor->get_key(cursor, &raw_key);
 	if (rc == 0)
-	{
+        {
             rc = cursor->get_value(cursor, &raw_value);
             if (rc == 0)
             {
@@ -548,7 +501,7 @@ static ERL_NIF_TERM wterl_cursor_value_ret(ErlNifEnv* env, WT_CURSOR *cursor, in
 	WT_ITEM raw_value;
 	rc = cursor->get_value(cursor, &raw_value);
 	if (rc == 0)
-	{
+        {
 	    ERL_NIF_TERM value;
 	    memcpy(enif_make_new_binary(env, raw_value.size, &value), raw_value.data, raw_value.size);
 	    return enif_make_tuple2(env, ATOM_OK, value);
@@ -560,7 +513,7 @@ static ERL_NIF_TERM wterl_cursor_value_ret(ErlNifEnv* env, WT_CURSOR *cursor, in
 static ERL_NIF_TERM wterl_cursor_np_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[],
                                            CursorRetFun cursor_ret, int prev)
 {
-    wterl_cursor_handle *cursor_handle;
+    WterlCursorHandle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
 	WT_CURSOR* cursor = cursor_handle->cursor;
@@ -601,7 +554,7 @@ static ERL_NIF_TERM wterl_cursor_prev_value(ErlNifEnv* env, int argc, const ERL_
 
 static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near)
 {
-    wterl_cursor_handle *cursor_handle;
+    WterlCursorHandle *cursor_handle;
     ErlNifBinary key;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle) &&
 	enif_inspect_binary(env, argv[1], &key))
@@ -634,19 +587,12 @@ static ERL_NIF_TERM wterl_cursor_search_near(ErlNifEnv* env, int argc, const ERL
 
 static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    wterl_cursor_handle *cursor_handle;
+    WterlCursorHandle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
 	WT_CURSOR* cursor = cursor_handle->cursor;
         int rc = cursor->reset(cursor);
-        if (rc == 0)
-        {
-            return ATOM_OK;
-        }
-        else
-        {
-	    return wterl_strerror(env, rc);
-        }
+        return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
     }
     return enif_make_badarg(env);
 }
@@ -657,14 +603,14 @@ static ERL_NIF_TERM wterl_cursor_reset(ErlNifEnv* env, int argc, const ERL_NIF_T
 
 static inline ERL_NIF_TERM wterl_cursor_data_op(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int op)
 {
-    wterl_cursor_handle *cursor_handle;
+    WterlCursorHandle *cursor_handle;
     if (enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&cursor_handle))
     {
         ErlNifBinary key, value;
 	int rc;
-        if (enif_inspect_binary(env, argv[1], &key) &&
-	    enif_inspect_binary(env, argv[2], &value)) {
-	    WT_CURSOR* cursor = cursor_handle->cursor;
+        if (enif_inspect_binary(env, argv[1], &key) && enif_inspect_binary(env, argv[2], &value))
+        {
+            WT_CURSOR* cursor = cursor_handle->cursor;
 	    WT_ITEM raw_key, raw_value;
 	    raw_key.data = key.data;
 	    raw_key.size = key.size;
@@ -672,26 +618,20 @@ static inline ERL_NIF_TERM wterl_cursor_data_op(ErlNifEnv* env, int argc, const 
 	    raw_value.data = value.data;
 	    raw_value.size = value.size;
 	    cursor->set_value(cursor, &raw_value);
-	    switch (op) {
+	    switch (op)
+            {
 	    case WTERL_OP_CURSOR_INSERT:
 		rc = cursor->insert(cursor);
 		break;
 	    case WTERL_OP_CURSOR_UPDATE:
 		rc = cursor->update(cursor);
 		break;
-	    default:
 	    case WTERL_OP_CURSOR_REMOVE:
+	    default:
 		rc = cursor->remove(cursor);
 		break;
 	    }
-	    if (rc == 0)
-	    {
-		return ATOM_OK;
-	    }
-	    else
-	    {
-		return wterl_strerror(env, rc);
-	    }
+	    return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
 	}
     }
     return enif_make_badarg(env);
@@ -712,39 +652,12 @@ static ERL_NIF_TERM wterl_cursor_remove(ErlNifEnv* env, int argc, const ERL_NIF_
     return wterl_cursor_data_op(env, argc, argv, WTERL_OP_CURSOR_REMOVE);
 }
 
-static void wterl_conn_resource_cleanup(ErlNifEnv* env, void* arg)
-{
-    /* Delete any dynamically allocated memory stored in wterl_handle */
-    /* wterl_handle* handle = (wterl_handle*)arg; */
-}
-
-static void wterl_session_resource_cleanup(ErlNifEnv* env, void* arg)
-{
-    /* Delete any dynamically allocated memory stored in wterl_handle */
-    /* wterl_handle* handle = (wterl_handle*)arg; */
-}
-
-static void wterl_cursor_resource_cleanup(ErlNifEnv* env, void* arg)
-{
-    /* Delete any dynamically allocated memory stored in wterl_handle */
-    /* wterl_handle* handle = (wterl_handle*)arg; */
-}
-
 static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
     ErlNifResourceFlags flags = ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER;
-    wterl_conn_RESOURCE = enif_open_resource_type(env, NULL,
-                                                  "wterl_conn_resource",
-                                                  &wterl_conn_resource_cleanup,
-                                                  flags, NULL);
-    wterl_session_RESOURCE = enif_open_resource_type(env, NULL,
-                                                     "wterl_session_resource",
-                                                     &wterl_session_resource_cleanup,
-                                                     flags, NULL);
-    wterl_cursor_RESOURCE = enif_open_resource_type(env, NULL,
-                                                     "wterl_cursor_resource",
-                                                     &wterl_cursor_resource_cleanup,
-                                                     flags, NULL);
+    wterl_conn_RESOURCE = enif_open_resource_type(env, NULL, "wterl_conn_resource", NULL, flags, NULL);
+    wterl_session_RESOURCE = enif_open_resource_type(env, NULL, "wterl_session_resource", NULL, flags, NULL);
+    wterl_cursor_RESOURCE = enif_open_resource_type(env, NULL, "wterl_cursor_resource", NULL, flags, NULL);
     ATOM_ERROR = enif_make_atom(env, "error");
     ATOM_OK = enif_make_atom(env, "ok");
     return 0;
