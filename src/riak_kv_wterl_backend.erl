@@ -103,10 +103,7 @@ start(Partition, Config) ->
                         {ok, ConnRef} ->
                             Table = "table:wt" ++ integer_to_list(Partition),
                             {ok, SRef} = wterl:session_open(ConnRef),
-                            %% TODO: should check return value here, but we
-                            %% currently get an error when the table already
-                            %% exists, so for now we ignore it.
-                            wterl:session_create(SRef, Table),
+                            ok = wterl:session_create(SRef, Table),
                             {ok, #state{conn=ConnRef,
                                         table=Table,
                                         session=SRef,

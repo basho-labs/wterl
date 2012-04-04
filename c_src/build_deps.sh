@@ -2,11 +2,9 @@
 
 set -e
 
-WT_VSN=1.1.2
+WT_VSN=1.1.3
 
-if [ `basename $PWD` != "c_src" ]; then
-    pushd c_src
-fi
+[ `basename $PWD` != "c_src" ] && cd c_src
 
 BASEDIR="$PWD"
 
