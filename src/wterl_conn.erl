@@ -36,8 +36,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {conn :: wterl:connection(),
-                monitors :: ets:tid()}).
+-record(state, {
+          conn :: wterl:connection()
+         }).
 
 %% ====================================================================
 %% API
@@ -72,23 +73,23 @@ close(_Conn) ->
 %% ====================================================================
 
 init([]) ->
+    true = wterl_ets:table_ready(),
     {ok, #state{}}.
 
 handle_call({open, Dir, Caller}, _From, #state{conn=undefined}=State) ->
     Opts = [{create, true}, {cache_size, "100MB"}, {session_max, 100}],
     {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
                           {ok, ConnRef}=OK ->
-                              Monitors = ets:new(?MODULE, []),
                               Monitor = erlang:monitor(process, Caller),
-                              true = ets:insert(Monitors, {Monitor, Caller}),
-                              {OK, State#state{conn = ConnRef, monitors=Monitors}};
+                              true = ets:insert(wterl_ets, {Monitor, Caller}),
+                              {OK, State#state{conn = ConnRef}};
                           Error ->
                               {Error, State}
                       end,
     {reply, Reply, NState};
-handle_call({open, _Dir, Caller}, _From,#state{conn=ConnRef, monitors=Monitors}=State) ->
+handle_call({open, _Dir, Caller}, _From,#state{conn=ConnRef}=State) ->
     Monitor = erlang:monitor(process, Caller),
-    true = ets:insert(Monitors, {Monitor, Caller}),
+    true = ets:insert(wterl_ets, {Monitor, Caller}),
     {reply, {ok, ConnRef}, State};
 
 handle_call(is_open, _From, #state{conn=ConnRef}=State) ->
@@ -99,40 +100,41 @@ handle_call(get, _From, #state{conn=undefined}=State) ->
 handle_call(get, _From, #state{conn=ConnRef}=State) ->
     {reply, {ok, ConnRef}, State};
 
-handle_call({close, Caller}, _From, #state{conn=ConnRef, monitors=Monitors}=State) ->
-    {[{Monitor, Caller}], _} = ets:match_object(Monitors, {'_', Caller}, 1),
+handle_call({close, Caller}, _From, #state{conn=ConnRef}=State) ->
+    {[{Monitor, Caller}], _} = ets:match_object(wterl_ets, {'_', Caller}, 1),
     true = erlang:demonitor(Monitor, [flush]),
-    true = ets:delete(Monitors, Monitor),
-    NState = case ets:info(Monitors, size) of
+    true = ets:delete(wterl_ets, Monitor),
+    NState = case ets:info(wterl_ets, size) of
                  0 ->
                      do_close(ConnRef),
-                     ets:delete(Monitors),
-                     State#state{conn=undefined, monitors=undefined};
+                     State#state{conn=undefined};
                  _ ->
                      State
              end,
-    {reply, ok, NState}.
+    {reply, ok, NState};
+handle_call(_Msg, _From, State) ->
+    {reply, ok, State}.
 
 handle_cast(stop, #state{conn=undefined}=State) ->
-    {noreply, State};
-handle_cast(stop, #state{conn=ConnRef, monitors=Monitors}=State) ->
+    {stop, normal, State};
+handle_cast(stop, #state{conn=ConnRef}=State) ->
     do_close(ConnRef),
     ets:foldl(fun({Monitor, _}, _) ->
-                      true = erl:demonitor(Monitor, [flush])
-              end, true, Monitors),
-    {noreply, State#state{conn=undefined, monitors=undefined}};
+                      true = erl:demonitor(Monitor, [flush]),
+                      ets:delete(wterl_ets, Monitor)
+              end, true, wterl_ets),
+    {stop, normal, State#state{conn=undefined}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', Monitor, _, _, _}, #state{conn=ConnRef, monitors=Monitors}=State) ->
-    NState = case ets:lookup(Monitors, Monitor) of
+handle_info({'DOWN', Monitor, _, _, _}, #state{conn=ConnRef}=State) ->
+    NState = case ets:lookup(wterl_ets, Monitor) of
                  [{Monitor, _}] ->
-                     true = ets:delete(Monitors, Monitor),
-                     case ets:info(Monitors, size) of
+                     true = ets:delete(wterl_ets, Monitor),
+                     case ets:info(wterl_ets, size) of
                          0 ->
                              do_close(ConnRef),
-                             ets:delete(Monitors),
-                             State#state{conn=undefined, monitors=undefined};
+                             State#state{conn=undefined};
                          _ ->
                              State
                      end;
@@ -170,15 +172,23 @@ simple_test_() ->
        fun() ->
                ?assertCmd("rm -rf " ++ ?DATADIR),
                ?assertMatch(ok, filelib:ensure_dir(filename:join(?DATADIR, "x"))),
-               case start_link() of
-                   {ok, Pid} ->
-                       Pid;
-                   {error, {already_started, Pid}} ->
-                       Pid
-               end
+               EtsPid = case wterl_ets:start_link() of
+                            {ok, Pid1} ->
+                                Pid1;
+                            {error, {already_started, Pid1}} ->
+                                Pid1
+                        end,
+               MyPid = case start_link() of
+                           {ok, Pid2} ->
+                               Pid2;
+                           {error, {already_started, Pid2}} ->
+                               Pid2
+                       end,
+               {EtsPid, MyPid}
        end,
        fun(_) ->
-               stop()
+               stop(),
+               wterl_ets:stop()
        end,
        fun(_) ->
                {inorder,
