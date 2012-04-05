@@ -333,7 +333,7 @@ static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF
             raw_key.size = key.size;
             cursor->set_key(cursor, &raw_key);
             rc = cursor->remove(cursor);
-            (void)cursor->close(cursor);
+            cursor->close(cursor);
             return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
@@ -365,18 +365,17 @@ static ERL_NIF_TERM wterl_session_get(ErlNifEnv* env, int argc, const ERL_NIF_TE
 	    if (rc == 0)
             {
                 rc = cursor->get_value(cursor, &raw_value);
+                if (rc == 0)
+                {
+                    ERL_NIF_TERM value;
+                    unsigned char* bin = enif_make_new_binary(env, raw_value.size, &value);
+                    memcpy(bin, raw_value.data, raw_value.size);
+                    cursor->close(cursor);
+                    return enif_make_tuple2(env, ATOM_OK, value);
+                }
             }
-	    (void)cursor->close(cursor);
-            if (rc == 0)
-            {
-		ERL_NIF_TERM value;
-		memcpy(enif_make_new_binary(env, raw_value.size, &value), raw_value.data, raw_value.size);
-		return enif_make_tuple2(env, ATOM_OK, value);
-            }
-            else
-            {
-		return wterl_strerror(env, rc);
-            }
+            cursor->close(cursor);
+            return wterl_strerror(env, rc);
         }
     }
     return enif_make_badarg(env);
@@ -408,7 +407,7 @@ static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TE
             raw_value.size = value.size;
             cursor->set_value(cursor, &raw_value);
             rc = cursor->insert(cursor);
-            (void)cursor->close(cursor);
+            cursor->close(cursor);
             return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
