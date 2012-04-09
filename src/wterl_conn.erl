@@ -30,7 +30,7 @@
 
 %% API
 -export([start_link/0, stop/0,
-         open/1, is_open/0, get/0, close/1]).
+         open/1, open/2, is_open/0, get/0, close/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -39,6 +39,8 @@
 -record(state, {
           conn :: wterl:connection()
          }).
+
+-type config_list() :: [{atom(), any()}].
 
 %% ====================================================================
 %% API
@@ -54,7 +56,11 @@ stop() ->
 
 -spec open(string()) -> {ok, wterl:connection()} | {error, term()}.
 open(Dir) ->
-    gen_server:call(?MODULE, {open, Dir, self()}, infinity).
+    open(Dir, []).
+
+-spec open(string(), config_list()) -> {ok, wterl:connection()} | {error, term()}.
+open(Dir, Config) ->
+    gen_server:call(?MODULE, {open, Dir, Config, self()}, infinity).
 
 -spec is_open() -> boolean().
 is_open() ->
@@ -76,8 +82,10 @@ init([]) ->
     true = wterl_ets:table_ready(),
     {ok, #state{}}.
 
-handle_call({open, Dir, Caller}, _From, #state{conn=undefined}=State) ->
-    Opts = [{create, true}, {cache_size, "100MB"}, {session_max, 100}],
+handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
+    Opts = [{create, true},
+            config_value(cache_size, Config, "100MB"),
+            config_value(session_max, Config, 100)],
     {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
                           {ok, ConnRef}=OK ->
                               Monitor = erlang:monitor(process, Caller),
@@ -87,7 +95,7 @@ handle_call({open, Dir, Caller}, _From, #state{conn=undefined}=State) ->
                               {Error, State}
                       end,
     {reply, Reply, NState};
-handle_call({open, _Dir, Caller}, _From,#state{conn=ConnRef}=State) ->
+handle_call({open, _Dir, _Config, Caller}, _From,#state{conn=ConnRef}=State) ->
     Monitor = erlang:monitor(process, Caller),
     true = ets:insert(wterl_ets, {Monitor, Caller}),
     {reply, {ok, ConnRef}, State};
@@ -156,10 +164,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %% ====================================================================
 
+%% @private
 do_close(undefined) ->
     ok;
 do_close(ConnRef) ->
     wterl:conn_close(ConnRef).
+
+%% @private
+config_value(Key, Config, Default) ->
+    {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
 
 
 -ifdef(TEST).
@@ -202,7 +215,7 @@ simple_test_() ->
        end}]}.
 
 open_one() ->
-    {ok, Ref} = open("test/wterl-backend"),
+    {ok, Ref} = open("test/wterl-backend", [{session_max, 20},{cache_size, "1MB"}]),
     true = is_open(),
     close(Ref),
     false = is_open(),

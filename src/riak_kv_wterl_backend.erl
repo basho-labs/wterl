@@ -99,7 +99,7 @@ start(Partition, Config) ->
             case AppStart of
                 ok ->
                     ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
-                    case wterl_conn:open(DataRoot) of
+                    case wterl_conn:open(DataRoot, Config) of
                         {ok, ConnRef} ->
                             Table = "table:wt" ++ integer_to_list(Partition),
                             {ok, SRef} = wterl:session_open(ConnRef),
