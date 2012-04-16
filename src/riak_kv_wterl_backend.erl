@@ -441,11 +441,11 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
 simple_test_() ->
     ?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, "test/wterl-backend"),
-    riak_kv_backend:standard_test(?MODULE, []).
+    temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
     ?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, ""),
-    riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).
+    temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).
 
 -endif.
