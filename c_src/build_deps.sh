@@ -2,7 +2,7 @@
 
 set -e
 
-WT_VSN=1.2.2
+WT_VSN=1.3.0
 
 [ `basename $PWD` != "c_src" ] && cd c_src
 

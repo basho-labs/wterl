@@ -36,6 +36,8 @@
          cursor_search/2,
          cursor_search_near/2,
          cursor_update/3,
+         session_checkpoint/1,
+         session_checkpoint/2,
          session_close/1,
          session_create/2,
          session_create/3,
@@ -49,8 +51,6 @@
          session_rename/4,
          session_salvage/2,
          session_salvage/3,
-         session_sync/2,
-         session_sync/3,
          session_truncate/2,
          session_truncate/3,
          session_upgrade/2,
@@ -156,11 +156,11 @@ session_salvage(Ref, Name) ->
 session_salvage(_Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec session_sync(session(), string()) -> ok | {error, term()}.
--spec session_sync(session(), string(), config()) -> ok | {error, term()}.
-session_sync(Ref, Name) ->
-    session_sync(Ref, Name, ?EMPTY_CONFIG).
-session_sync(_Ref, _Name, _Config) ->
+-spec session_checkpoint(session()) -> ok | {error, term()}.
+-spec session_checkpoint(session(), config()) -> ok | {error, term()}.
+session_checkpoint(_Ref) ->
+    session_checkpoint(_Ref, ?EMPTY_CONFIG).
+session_checkpoint(_Ref, _Config) ->
     ?nif_stub.
 
 -spec session_truncate(session(), string()) -> ok | {error, term()}.
@@ -266,6 +266,7 @@ fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
 config_types() ->
     [{cache_size, string},
      {create, bool},
+     {drop, list},
      {error_prefix, string},
      {eviction_target, integer},
      {eviction_trigger, integer},
@@ -276,7 +277,9 @@ config_types() ->
      {home_environment_priv, bool},
      {logging, bool},
      {multiprocess, bool},
+     {name, string},
      {session_max, integer},
+     {target, list},
      {transactional, bool},
      {verbose, string}].
 
@@ -287,6 +290,8 @@ config_encode(integer, Value) ->
         _:_ ->
             invalid
     end;
+config_encode(list, Value) ->
+    list_to_binary(["(", string:join(Value, ","), ")"]);
 config_encode(string, Value) ->
     list_to_binary(Value);
 config_encode(bool, true) ->
@@ -404,9 +409,10 @@ various_session_test_() ->
                         ?assertMatch({ok, <<"apple">>},
                                      session_get(SRef, "table:test", <<"a">>))
                 end},
-               {"session sync",
+               {"session checkpoint",
                 fun() ->
-                        ?assertMatch(ok, session_sync(SRef, "table:test")),
+                        Cfg = wterl:config_to_bin([{target, ["\"table:test\""]}]),
+                        ?assertMatch(ok, session_checkpoint(SRef, Cfg)),
                         ?assertMatch({ok, <<"apple">>},
                                      session_get(SRef, "table:test", <<"a">>))
                 end},

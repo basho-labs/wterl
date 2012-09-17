@@ -74,6 +74,7 @@ static ERL_NIF_TERM wterl_cursor_search_near(ErlNifEnv* env, int argc, const ERL
 static ERL_NIF_TERM wterl_cursor_search_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int near);
 static ERL_NIF_TERM wterl_cursor_update(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_cursor_value_ret(ErlNifEnv* env, WT_CURSOR *cursor, int rc);
+static ERL_NIF_TERM wterl_session_checkpoint(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
@@ -83,7 +84,6 @@ static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_T
 static ERL_NIF_TERM wterl_session_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_rename(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_salvage(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-static ERL_NIF_TERM wterl_session_sync(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_truncate(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_upgrade(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM wterl_session_verify(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
@@ -106,6 +106,7 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_search", 2, wterl_cursor_search},
     {"cursor_search_near", 2, wterl_cursor_search_near},
     {"cursor_update", 3, wterl_cursor_update},
+    {"session_checkpoint", 2, wterl_session_checkpoint},
     {"session_close", 1, wterl_session_close},
     {"session_create", 3, wterl_session_create},
     {"session_delete", 3, wterl_session_delete},
@@ -115,7 +116,6 @@ static ErlNifFunc nif_funcs[] =
     {"session_put", 4, wterl_session_put},
     {"session_rename", 4, wterl_session_rename},
     {"session_salvage", 3, wterl_session_salvage},
-    {"session_sync", 3, wterl_session_sync},
     {"session_truncate", 3, wterl_session_truncate},
     {"session_upgrade", 3, wterl_session_upgrade},
     {"session_verify", 3, wterl_session_verify},
@@ -169,10 +169,9 @@ static ERL_NIF_TERM wterl_conn_close(ErlNifEnv* env, int argc, const ERL_NIF_TER
 #define	WTERL_OP_CREATE		1
 #define	WTERL_OP_DROP		2
 #define	WTERL_OP_SALVAGE	3
-#define	WTERL_OP_SYNC		4
-#define	WTERL_OP_TRUNCATE	5
-#define	WTERL_OP_UPGRADE	6
-#define	WTERL_OP_VERIFY		7
+#define	WTERL_OP_TRUNCATE	4
+#define	WTERL_OP_UPGRADE	5
+#define	WTERL_OP_VERIFY		6
 
 static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], int op)
 {
@@ -180,39 +179,36 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
     if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle))
     {
         WT_SESSION* session = session_handle->session;
-	ErlNifBinary config;
+        int rc;
         Uri uri;
+        ErlNifBinary config;
         if (enif_get_string(env, argv[1], uri, sizeof uri, ERL_NIF_LATIN1) &&
             enif_inspect_binary(env, argv[2], &config))
         {
-	    int rc;
-	    switch (op)
+            switch (op)
             {
-	    case WTERL_OP_CREATE:
-		rc = session->create(session, uri, (const char*)config.data);
-		break;
-	    case WTERL_OP_DROP:
-		rc = session->drop(session, uri, (const char*)config.data);
-		break;
-	    case WTERL_OP_SALVAGE:
-		rc = session->salvage(session, uri, (const char*)config.data);
-		break;
-	    case WTERL_OP_SYNC:
-		rc = session->sync(session, uri, (const char*)config.data);
-		break;
-	    case WTERL_OP_TRUNCATE:
-		// Ignore the cursor start/stop form of truncation for now,
-		// support only the full file truncation.
-		rc = session->truncate(session, uri, NULL, NULL, (const char*)config.data);
-		break;
-	    case WTERL_OP_UPGRADE:
-		rc = session->upgrade(session, uri, (const char*)config.data);
-		break;
-	    case WTERL_OP_VERIFY:
-	    default:
-		rc = session->verify(session, uri, (const char*)config.data);
-		break;
-	    }
+            case WTERL_OP_CREATE:
+                rc = session->create(session, uri, (const char*)config.data);
+                break;
+            case WTERL_OP_DROP:
+                rc = session->drop(session, uri, (const char*)config.data);
+                break;
+            case WTERL_OP_SALVAGE:
+                rc = session->salvage(session, uri, (const char*)config.data);
+                break;
+            case WTERL_OP_TRUNCATE:
+                // Ignore the cursor start/stop form of truncation for now,
+                // support only the full file truncation.
+                rc = session->truncate(session, uri, NULL, NULL, (const char*)config.data);
+                break;
+            case WTERL_OP_UPGRADE:
+                rc = session->upgrade(session, uri, (const char*)config.data);
+                break;
+            case WTERL_OP_VERIFY:
+            default:
+                rc = session->verify(session, uri, (const char*)config.data);
+                break;
+            }
             return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
         }
     }
@@ -291,9 +287,18 @@ static ERL_NIF_TERM wterl_session_salvage(ErlNifEnv* env, int argc, const ERL_NI
     return wterl_session_worker(env, argc, argv, WTERL_OP_SALVAGE);
 }
 
-static ERL_NIF_TERM wterl_session_sync(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+static ERL_NIF_TERM wterl_session_checkpoint(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    return wterl_session_worker(env, argc, argv, WTERL_OP_SYNC);
+    WterlSessionHandle* session_handle;
+    ErlNifBinary config;
+    if (enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&session_handle) &&
+        enif_inspect_binary(env, argv[1], &config))
+    {
+        WT_SESSION* session = session_handle->session;
+        int rc = session->checkpoint(session, (const char*)config.data);
+        return rc == 0 ? ATOM_OK : wterl_strerror(env, rc);
+    }
+    return enif_make_badarg(env);
 }
 
 static ERL_NIF_TERM wterl_session_truncate(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
