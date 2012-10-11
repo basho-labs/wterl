@@ -418,12 +418,8 @@ various_session_test_() ->
                 end},
                {"session salvage",
                 fun() ->
-                        %% ===============================================================
-                        %% KEITH: SKIP SALVAGE FOR NOW, THERE IS SOMETHING WRONG.
-                        %% ===============================================================
-                        %% ok = session_salvage(SRef, "table:test"),
-                        %% {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>),
-                        ok
+                        ok = session_salvage(SRef, "table:test"),
+                        {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>)
                 end},
                {"session upgrade",
                 fun() ->
