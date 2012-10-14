@@ -45,7 +45,7 @@ file=./deps/riak_kv/rebar.config
 if ! grep -q wterl $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
-    perl -i.orig -pe '/\bsext\b/ && print qq(        {wterl, ".*", {git, "git\@github.com:basho/wterl.git", "master"}},\n)' $file
+    perl -i.orig -pe '/\bsext\b/ && print qq(        {wterl, ".*", {git, "git\@github.com:basho-labs/wterl.git", "master"}},\n)' $file
 fi
 
 rebar get-deps
