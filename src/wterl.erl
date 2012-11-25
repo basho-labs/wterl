@@ -61,6 +61,8 @@
          fold_keys/3,
          fold/3]).
 
+-include("async_nif.hrl").
+
 -ifdef(TEST).
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
@@ -101,143 +103,259 @@ init() ->
     erlang:load_nif(filename:join(PrivDir, atom_to_list(?MODULE)), 0).
 
 -spec conn_open(string(), config()) -> {ok, connection()} | {error, term()}.
-conn_open(_HomeDir, _Config) ->
+conn_open(HomeDir, Config) ->
+    ?ASYNC_NIF_CALL(fun conn_open_nif/3, [HomeDir, Config]).
+
+-spec conn_open_nif(reference(), string(), config()) -> {ok, connection()} | {error, term()}.
+conn_open_nif(_AsyncRef, _HomeDir, _Config) ->
     ?nif_stub.
 
 -spec conn_close(connection()) -> ok | {error, term()}.
-conn_close(_ConnRef) ->
+conn_close(ConnRef) ->
+    ?ASYNC_NIF_CALL(fun conn_close_nif/2, [ConnRef]).
+
+-spec conn_close_nif(reference(), connection()) -> ok | {error, term()}.
+conn_close_nif(_AsyncRef, _ConnRef) ->
     ?nif_stub.
 
 -spec session_open(connection()) -> {ok, session()} | {error, term()}.
-session_open(_ConnRef) ->
+session_open(ConnRef) ->
+    ?ASYNC_NIF_CALL(fun session_open_nif/2, [ConnRef]).
+
+-spec session_open_nif(reference(), connection()) -> {ok, session()} | {error, term()}.
+session_open_nif(_AsyncRef, _ConnRef) ->
     ?nif_stub.
 
 -spec session_close(session()) -> ok | {error, term()}.
-session_close(_Ref) ->
+session_close(Ref) ->
+    ?ASYNC_NIF_CALL(fun session_close_nif/2, [Ref]).
+
+-spec session_close_nif(reference(), session()) -> ok | {error, term()}.
+session_close_nif(_AsyncRef, _Ref) ->
     ?nif_stub.
 
 -spec session_create(session(), string()) -> ok | {error, term()}.
 -spec session_create(session(), string(), config()) -> ok | {error, term()}.
 session_create(Ref, Name) ->
     session_create(Ref, Name, ?EMPTY_CONFIG).
-session_create(_Ref, _Name, _Config) ->
+session_create(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun session_create_nif/4, [Ref, Name, Config]).
+
+-spec session_create_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
+session_create_nif(_AsyncNif, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec session_drop(session(), string()) -> ok | {error, term()}.
 -spec session_drop(session(), string(), config()) -> ok | {error, term()}.
 session_drop(Ref, Name) ->
     session_drop(Ref, Name, ?EMPTY_CONFIG).
-session_drop(_Ref, _Name, _Config) ->
+session_drop(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun session_drop_nif/4, [Ref, Name, Config]).
+
+-spec session_drop_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
+session_drop_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec session_delete(session(), string(), key()) -> ok | {error, term()}.
-session_delete(_Ref, _Table, _Key) ->
+session_delete(Ref, Table, Key) ->
+    ?ASYNC_NIF_CALL(fun session_delete_nif/4, [Ref, Table, Key]).
+
+-spec session_delete_nif(reference(), session(), string(), key()) -> ok | {error, term()}.
+session_delete_nif(_AsyncRef, _Ref, _Table, _Key) ->
     ?nif_stub.
 
 -spec session_get(session(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
-session_get(_Ref, _Table, _Key) ->
+session_get(Ref, Table, Key) ->
+    ?ASYNC_NIF_CALL(fun session_get_nif/4, [Ref, Table, Key]).
+
+-spec session_get_nif(reference(), session(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
+session_get_nif(_AsyncRef, _Ref, _Table, _Key) ->
     ?nif_stub.
 
 -spec session_put(session(), string(), key(), value()) -> ok | {error, term()}.
-session_put(_Ref, _Table, _Key, _Value) ->
+session_put(Ref, Table, Key, Value) ->
+    ?ASYNC_NIF_CALL(fun session_put_nif/5, [Ref, Table, Key, Value]).
+
+-spec session_put_nif(reference(), session(), string(), key(), value()) -> ok | {error, term()}.
+session_put_nif(_AsyncRef, _Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
 -spec session_rename(session(), string(), string()) -> ok | {error, term()}.
 -spec session_rename(session(), string(), string(), config()) -> ok | {error, term()}.
 session_rename(Ref, OldName, NewName) ->
     session_rename(Ref, OldName, NewName, ?EMPTY_CONFIG).
-session_rename(_Ref, _OldName, _NewName, _Config) ->
+session_rename(Ref, OldName, NewName, Config) ->
+    ?ASYNC_NIF_CALL(fun session_rename_nif/5, [Ref, OldName, NewName, Config]).
+
+-spec session_rename_nif(reference(), session(), string(), string(), config()) -> ok | {error, term()}.
+session_rename_nif(_AsyncRef, _Ref, _OldName, _NewName, _Config) ->
     ?nif_stub.
 
 -spec session_salvage(session(), string()) -> ok | {error, term()}.
 -spec session_salvage(session(), string(), config()) -> ok | {error, term()}.
 session_salvage(Ref, Name) ->
     session_salvage(Ref, Name, ?EMPTY_CONFIG).
-session_salvage(_Ref, _Name, _Config) ->
+session_salvage(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun session_salvage_nif/4, [Ref, Name, Config]).
+
+-spec session_salvage_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
+session_salvage_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec session_checkpoint(session()) -> ok | {error, term()}.
 -spec session_checkpoint(session(), config()) -> ok | {error, term()}.
 session_checkpoint(_Ref) ->
     session_checkpoint(_Ref, ?EMPTY_CONFIG).
-session_checkpoint(_Ref, _Config) ->
+session_checkpoint(Ref, Config) ->
+    ?ASYNC_NIF_CALL(fun session_checkpoint_nif/3, [Ref, Config]).
+
+-spec session_checkpoint_nif(reference(), session(), config()) -> ok | {error, term()}.
+session_checkpoint_nif(_AsyncRef, _Ref, _Config) ->
     ?nif_stub.
 
 -spec session_truncate(session(), string()) -> ok | {error, term()}.
 -spec session_truncate(session(), string(), config()) -> ok | {error, term()}.
 session_truncate(Ref, Name) ->
     session_truncate(Ref, Name, ?EMPTY_CONFIG).
-session_truncate(_Ref, _Name, _Config) ->
+session_truncate(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun session_truncate_nif/4, [Ref, Name, Config]).
+
+-spec session_truncate_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
+session_truncate_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec session_upgrade(session(), string()) -> ok | {error, term()}.
 -spec session_upgrade(session(), string(), config()) -> ok | {error, term()}.
 session_upgrade(Ref, Name) ->
     session_upgrade(Ref, Name, ?EMPTY_CONFIG).
-session_upgrade(_Ref, _Name, _Config) ->
+session_upgrade(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun session_upgrade_nif/4, [Ref, Name, Config]).
+
+-spec session_upgrade_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
+session_upgrade_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec session_verify(session(), string()) -> ok | {error, term()}.
 -spec session_verify(session(), string(), config()) -> ok | {error, term()}.
 session_verify(Ref, Name) ->
     session_verify(Ref, Name, ?EMPTY_CONFIG).
-session_verify(_Ref, _Name, _Config) ->
+session_verify(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun session_verify_nif/4, [Ref, Name, Config]).
+
+-spec session_verify_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
+session_verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec cursor_open(session(), string()) -> {ok, cursor()} | {error, term()}.
-cursor_open(_Ref, _Table) ->
+cursor_open(Ref, Table) ->
+    ?ASYNC_NIF_CALL(fun cursor_open_nif/3, [Ref, Table]).
+
+-spec cursor_open_nif(reference(), session(), string()) -> {ok, cursor()} | {error, term()}.
+cursor_open_nif(_AsyncRef, _Ref, _Table) ->
     ?nif_stub.
 
 -spec cursor_close(cursor()) -> ok | {error, term()}.
-cursor_close(_Cursor) ->
+cursor_close(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_close_nif/2, [Cursor]).
+
+-spec cursor_close_nif(reference(), cursor()) -> ok | {error, term()}.
+cursor_close_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_next(cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
-cursor_next(_Cursor) ->
+cursor_next(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_next_nif/2, [Cursor]).
+
+-spec cursor_next_nif(reference(), cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
+cursor_next_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_next_key(cursor()) -> {ok, key()} | not_found | {error, term()}.
-cursor_next_key(_Cursor) ->
+cursor_next_key(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_next_key_nif/2, [Cursor]).
+
+-spec cursor_next_key_nif(reference(), cursor()) -> {ok, key()} | not_found | {error, term()}.
+cursor_next_key_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_next_value(cursor()) -> {ok, value()} | not_found | {error, term()}.
-cursor_next_value(_Cursor) ->
+cursor_next_value(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_next_value_nif/2, [Cursor]).
+
+-spec cursor_next_value_nif(reference(), cursor()) -> {ok, value()} | not_found | {error, term()}.
+cursor_next_value_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_prev(cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
-cursor_prev(_Cursor) ->
+cursor_prev(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_prev_nif/2, [Cursor]).
+
+-spec cursor_prev_nif(reference(), cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
+cursor_prev_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_prev_key(cursor()) -> {ok, key()} | not_found | {error, term()}.
-cursor_prev_key(_Cursor) ->
+cursor_prev_key(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_prev_key_nif/2, [Cursor]).
+
+-spec cursor_prev_key_nif(reference(), cursor()) -> {ok, key()} | not_found | {error, term()}.
+cursor_prev_key_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_prev_value(cursor()) -> {ok, value()} | not_found | {error, term()}.
-cursor_prev_value(_Cursor) ->
+cursor_prev_value(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_prev_value_nif/2, [Cursor]).
+
+-spec cursor_prev_value_nif(reference(), cursor()) -> {ok, value()} | not_found | {error, term()}.
+cursor_prev_value_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_search(cursor(), key()) -> {ok, value()} | {error, term()}.
-cursor_search(_Cursor, _Key) ->
+cursor_search(Cursor, Key) ->
+    ?ASYNC_NIF_CALL(fun cursor_search_nif/3, [Cursor, Key]).
+
+-spec cursor_search_nif(reference(), cursor(), key()) -> {ok, value()} | {error, term()}.
+cursor_search_nif(_AsyncRef, _Cursor, _Key) ->
     ?nif_stub.
 
 -spec cursor_search_near(cursor(), key()) -> {ok, value()} | {error, term()}.
-cursor_search_near(_Cursor, _Key) ->
+cursor_search_near(Cursor, Key) ->
+    ?ASYNC_NIF_CALL(fun cursor_search_near_nif/3, [Cursor, Key]).
+
+-spec cursor_search_near_nif(reference(), cursor(), key()) -> {ok, value()} | {error, term()}.
+cursor_search_near_nif(_AsyncRef, _Cursor, _Key) ->
     ?nif_stub.
 
 -spec cursor_reset(cursor()) -> ok | {error, term()}.
-cursor_reset(_Cursor) ->
+cursor_reset(Cursor) ->
+    ?ASYNC_NIF_CALL(fun cursor_reset_nif/2, [Cursor]).
+
+-spec cursor_reset_nif(reference(), cursor()) -> ok | {error, term()}.
+cursor_reset_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_insert(cursor(), key(), value()) -> ok | {error, term()}.
-cursor_insert(_Cursor, _Key, _Value) ->
+cursor_insert(Cursor, Key, Value) ->
+    ?ASYNC_NIF_CALL(fun cursor_insert_nif/4, [Cursor, Key, Value]).
+
+-spec cursor_insert_nif(reference(), cursor(), key(), value()) -> ok | {error, term()}.
+cursor_insert_nif(_AsyncRef, _Cursor, _Key, _Value) ->
     ?nif_stub.
 
 -spec cursor_update(cursor(), key(), value()) -> ok | {error, term()}.
-cursor_update(_Cursor, _Key, _Value) ->
+cursor_update(Cursor, Key, Value) ->
+    ?ASYNC_NIF_CALL(fun cursor_update_nif/4, [Cursor, Key, Value]).
+
+-spec cursor_update_nif(reference(), cursor(), key(), value()) -> ok | {error, term()}.
+cursor_update_nif(_AsyncRef, _Cursor, _Key, _Value) ->
     ?nif_stub.
 
 -spec cursor_remove(cursor(), key(), value()) -> ok | {error, term()}.
-cursor_remove(_Cursor, _Key, _Value) ->
+cursor_remove(Cursor, Key, Value) ->
+    ?ASYNC_NIF_CALL(fun cursor_remove_nif/4, [Cursor, Key, Value]).
+
+-spec cursor_remove_nif(reference(), cursor(), key(), value()) -> ok | {error, term()}.
+cursor_remove_nif(_AsyncRef, _Cursor, _Key, _Value) ->
     ?nif_stub.
 
 -type fold_keys_fun() :: fun((Key::binary(), any()) -> any()).
