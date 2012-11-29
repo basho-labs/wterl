@@ -72,6 +72,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[1], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
   },
   { // work
 
@@ -194,6 +195,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -222,6 +224,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -252,6 +255,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[3], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -280,6 +284,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -306,6 +311,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[1], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -334,6 +340,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -364,6 +371,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -392,6 +400,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->config))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -420,6 +429,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->key))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -460,6 +470,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[2], &args->key))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -515,6 +526,8 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[3], &args->value))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -812,6 +825,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[1], &args->key))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
@@ -845,6 +859,7 @@ ASYNC_NIF_DECL(
           enif_inspect_binary(env, argv[1], &args->key))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
@@ -906,6 +921,8 @@ ASYNC_NIF_DECL(
         enif_inspect_binary(env, argv[2], &args->value)) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
@@ -944,6 +961,8 @@ ASYNC_NIF_DECL(
         enif_inspect_binary(env, argv[2], &args->value)) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
@@ -982,6 +1001,8 @@ ASYNC_NIF_DECL(
         enif_inspect_binary(env, argv[2], &args->value)) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work

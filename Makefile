@@ -52,6 +52,9 @@ repl:
 gdb-repl:
 	USE_GDB=1 $(ERL) -pz deps/*/ebin -pa ebin
 
+eunit-repl:
+	erl -pa .eunit -pz deps/*/ebin -pz ebin -exec 'cd(".eunit").'
+
 
 # NOTES
 #

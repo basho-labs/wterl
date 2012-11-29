@@ -25,11 +25,11 @@
         begin
             NIFRef = erlang:make_ref(),
             case erlang:apply(Fun, [NIFRef|Args]) of
-                {ok, QDepth} ->
-                    erlang:bump_reductions(100 * QDepth),
+                {ok, {enqueued, QDepth}} ->
+                    [erlang:bump_reductions(10 * QDepth) || is_integer(QDepth), QDepth > 100],
                     receive
                         {NIFRef, {error, shutdown}=Error} ->
-                            %% Work unit was not executed, requeue it?
+                            %% Work unit was queued, but not executed.
                             Error;
                         {NIFRef, {error, _Reason}=Error} ->
                             %% Work unit returned an error.
