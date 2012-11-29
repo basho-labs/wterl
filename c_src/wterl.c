@@ -63,21 +63,27 @@ ASYNC_NIF_DECL(
   wterl_conn_open,
   { // struct
 
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
     char homedir[4096];
   },
   { // pre
 
     if (!(enif_get_string(env, argv[0], args->homedir, sizeof args->homedir, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[1], &args->config))) {
+          enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
   },
   { // work
 
     WT_CONNECTION* conn;
-    int rc = wiredtiger_open(args->homedir, NULL, (const char*)args->config.data, &conn);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+
+    int rc = wiredtiger_open(args->homedir, NULL, (const char*)config.data, &conn);
     if (rc == 0)
     {
       WterlConnHandle* conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
@@ -92,6 +98,7 @@ ASYNC_NIF_DECL(
     }
   },
   { // post
+
   });
 
 ASYNC_NIF_DECL(
@@ -186,22 +193,27 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->config))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->create(session, args->uri, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->create(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -215,22 +227,27 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->config))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->drop(session, args->uri, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->drop(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -243,7 +260,7 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlSessionHandle* session_handle;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
     Uri oldname;
     Uri newname;
   },
@@ -252,16 +269,21 @@ ASYNC_NIF_DECL(
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->oldname, sizeof args->oldname, ERL_NIF_LATIN1) &&
           enif_get_string(env, argv[2], args->newname, sizeof args->newname, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[3], &args->config))) {
+          enif_is_binary(env, argv[3]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->rename(session, args->oldname, args->newname, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->rename(session, args->oldname, args->newname, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -275,22 +297,27 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->config))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->salvage(session, args->uri, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->salvage(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -303,21 +330,26 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlSessionHandle* session_handle;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
-          enif_inspect_binary(env, argv[1], &args->config))) {
+          enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->checkpoint(session, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->checkpoint(session, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -331,16 +363,16 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->config))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
@@ -348,7 +380,12 @@ ASYNC_NIF_DECL(
     // Ignore the cursor start/stop form of truncation for now,
     // support only the full file truncation.
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->truncate(session, args->uri, NULL, NULL, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->truncate(session, args->uri, NULL, NULL, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -362,22 +399,27 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->config))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->upgrade(session, args->uri, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->upgrade(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -391,22 +433,27 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary config;
+    ERL_NIF_TERM config;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->config))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
-    int rc = session->verify(session, args->uri, (const char*)args->config.data);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = session->verify(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
   },
   { // post
@@ -420,21 +467,26 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary key;
+    ERL_NIF_TERM key;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->key))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
+    ErlNifBinary key;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_CURSOR* cursor;
     int rc = session->open_cursor(session, args->uri, NULL, "raw", &cursor);
     if (rc != 0)
@@ -443,8 +495,8 @@ ASYNC_NIF_DECL(
       return;
     }
     WT_ITEM raw_key;
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
     rc = cursor->remove(cursor);
     cursor->close(cursor);
@@ -461,21 +513,26 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary key;
+    ERL_NIF_TERM key;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->key))) {
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
+    ErlNifBinary key;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_CURSOR* cursor;
     int rc = session->open_cursor(session, args->uri, NULL, "overwrite,raw", &cursor);
     if (rc != 0)
@@ -485,8 +542,8 @@ ASYNC_NIF_DECL(
     }
     WT_ITEM raw_key;
     WT_ITEM raw_value;
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
     rc = cursor->search(cursor);
     if (rc == 0)
@@ -515,24 +572,34 @@ ASYNC_NIF_DECL(
 
     WterlSessionHandle* session_handle;
     Uri uri;
-    ErlNifBinary key;
-    ErlNifBinary value;
+    ERL_NIF_TERM key;
+    ERL_NIF_TERM value;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
-          enif_inspect_binary(env, argv[2], &args->key) &&
-          enif_inspect_binary(env, argv[3], &args->value))) {
+          enif_is_binary(env, argv[2]) &&
+          enif_is_binary(env, argv[3]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->value = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
     enif_keep_resource((void*)args->session_handle);
   },
   { // work
 
     WT_SESSION* session = args->session_handle->session;
+    ErlNifBinary key;
+    ErlNifBinary value;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    if (!enif_inspect_binary(env, args->value, &value)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_CURSOR* cursor;
     int rc = session->open_cursor(session, args->uri, NULL, "overwrite,raw", &cursor);
     if (rc != 0)
@@ -542,11 +609,11 @@ ASYNC_NIF_DECL(
     }
     WT_ITEM raw_key;
     WT_ITEM raw_value;
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
-    raw_value.data = args->value.data;
-    raw_value.size = args->value.size;
+    raw_value.data = value.data;
+    raw_value.size = value.size;
     cursor->set_value(cursor, &raw_value);
     rc = cursor->insert(cursor);
     cursor->close(cursor);
@@ -817,24 +884,29 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlCursorHandle *cursor_handle;
-    ErlNifBinary key;
+    ERL_NIF_TERM key;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
-          enif_inspect_binary(env, argv[1], &args->key))) {
+          enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
 
     WT_CURSOR* cursor = args->cursor_handle->cursor;
+    ErlNifBinary key;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_ITEM raw_key;
 
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
 
     // We currently ignore the less-than, greater-than or equals-to return information
@@ -851,25 +923,30 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlCursorHandle *cursor_handle;
-    ErlNifBinary key;
+    ERL_NIF_TERM key;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
-          enif_inspect_binary(env, argv[1], &args->key))) {
+          enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
 
     WT_CURSOR* cursor = args->cursor_handle->cursor;
+    ErlNifBinary key;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_ITEM raw_key;
     int exact;
 
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
 
     // We currently ignore the less-than, greater-than or equals-to return information
@@ -910,32 +987,42 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlCursorHandle *cursor_handle;
-    ErlNifBinary key;
-    ErlNifBinary value;
+    ERL_NIF_TERM key;
+    ERL_NIF_TERM value;
     int rc;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle)) &&
-        enif_inspect_binary(env, argv[1], &args->key) &&
-        enif_inspect_binary(env, argv[2], &args->value)) {
+        enif_is_binary(env, argv[1]) &&
+        enif_is_binary(env, argv[2])) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->value = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
 
     WT_CURSOR* cursor = args->cursor_handle->cursor;
+    ErlNifBinary key;
+    ErlNifBinary value;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    if (!enif_inspect_binary(env, args->value, &value)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_ITEM raw_key;
     WT_ITEM raw_value;
 
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
-    raw_value.data = args->value.data;
-    raw_value.size = args->value.size;
+    raw_value.data = value.data;
+    raw_value.size = value.size;
     cursor->set_value(cursor, &raw_value);
     int rc = cursor->insert(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
@@ -950,32 +1037,42 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlCursorHandle *cursor_handle;
-    ErlNifBinary key;
-    ErlNifBinary value;
+    ERL_NIF_TERM key;
+    ERL_NIF_TERM value;
     int rc;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle)) &&
-        enif_inspect_binary(env, argv[1], &args->key) &&
-        enif_inspect_binary(env, argv[2], &args->value)) {
+        enif_is_binary(env, argv[1]) &&
+        enif_is_binary(env, argv[2])) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->value = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
 
     WT_CURSOR* cursor = args->cursor_handle->cursor;
+    ErlNifBinary key;
+    ErlNifBinary value;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    if (!enif_inspect_binary(env, args->value, &value)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_ITEM raw_key;
     WT_ITEM raw_value;
 
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
-    raw_value.data = args->value.data;
-    raw_value.size = args->value.size;
+    raw_value.data = value.data;
+    raw_value.size = value.size;
     cursor->set_value(cursor, &raw_value);
     int rc = cursor->update(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
@@ -990,32 +1087,42 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlCursorHandle *cursor_handle;
-    ErlNifBinary key;
-    ErlNifBinary value;
+    ERL_NIF_TERM key;
+    ERL_NIF_TERM value;
     int rc;
   },
   { // pre
 
     if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle)) &&
-        enif_inspect_binary(env, argv[1], &args->key) &&
-        enif_inspect_binary(env, argv[2], &args->value)) {
+        enif_is_binary(env, argv[1]) &&
+        enif_is_binary(env, argv[2])) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
-    enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->value = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
 
     WT_CURSOR* cursor = args->cursor_handle->cursor;
+    ErlNifBinary key;
+    ErlNifBinary value;
+    if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    if (!enif_inspect_binary(env, args->value, &value)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
     WT_ITEM raw_key;
     WT_ITEM raw_value;
 
-    raw_key.data = args->key.data;
-    raw_key.size = args->key.size;
+    raw_key.data = key.data;
+    raw_key.size = key.size;
     cursor->set_key(cursor, &raw_key);
-    raw_value.data = args->value.data;
-    raw_value.size = args->value.size;
+    raw_value.data = value.data;
+    raw_value.size = value.size;
     cursor->set_value(cursor, &raw_value);
     int rc = cursor->remove(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : wterl_strerror(env, rc));
