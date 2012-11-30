@@ -556,6 +556,7 @@ ASYNC_NIF_DECL(
         memcpy(bin, raw_value.data, raw_value.size);
         cursor->close(cursor);
         ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, value));
+        return;
       }
     }
     cursor->close(cursor);
