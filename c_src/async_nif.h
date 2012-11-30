@@ -35,7 +35,7 @@ extern "C" {
      echo 1000000 > /proc/sys/kernel/threads-max
    and for all UNIX systems there will be ulimit maximums. */
 #ifndef ASYNC_NIF_MAX_WORKERS
-#define ASYNC_NIF_MAX_WORKERS 64
+#define ASYNC_NIF_MAX_WORKERS 16
 #endif
 
 #include "queue.h"
