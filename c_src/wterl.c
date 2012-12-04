@@ -68,7 +68,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_string(env, argv[0], args->homedir, sizeof args->homedir, ERL_NIF_LATIN1) &&
+    if (!(argc == 2 &&
+          enif_get_string(env, argv[0], args->homedir, sizeof args->homedir, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -109,7 +110,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->conn_handle);
@@ -129,20 +131,29 @@ ASYNC_NIF_DECL(
   wterl_session_open,
   { // struct
 
+    ERL_NIF_TERM config;
     WterlConnHandle* conn_handle;
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle))) {
+    if (!(argc == 2 &&
+          enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle)  &&
+          enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
+    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     enif_keep_resource((void*)args->conn_handle);
   },
   { // work
 
     WT_CONNECTION* conn = args->conn_handle->conn;
     WT_SESSION* session;
-    int rc = conn->open_session(conn, NULL, NULL, &session);
+    ErlNifBinary config;
+    if (!enif_inspect_binary(env, args->config, &config)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    int rc = conn->open_session(conn, NULL, (const char*)config.data, &session);
     if (rc == 0)
     {
       WterlSessionHandle* session_handle =
@@ -171,7 +182,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->session_handle);
@@ -197,7 +209,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -231,7 +244,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -266,7 +280,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 4 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->oldname, sizeof args->oldname, ERL_NIF_LATIN1) &&
           enif_get_string(env, argv[2], args->newname, sizeof args->newname, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[3]))) {
@@ -301,7 +316,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -334,7 +350,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 2 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -367,7 +384,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -403,7 +421,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -437,7 +456,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -471,7 +491,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -517,7 +538,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -578,7 +600,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 4 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
           enif_is_binary(env, argv[2]) &&
           enif_is_binary(env, argv[3]))) {
@@ -634,7 +657,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
+    if (!(argc == 2 &&
+          enif_get_resource(env, argv[0], wterl_session_RESOURCE, (void**)&args->session_handle) &&
           enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -673,7 +697,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -750,7 +775,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -796,7 +822,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -819,7 +846,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -842,7 +870,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -865,7 +894,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -889,7 +919,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
+    if (!(argc == 2 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
           enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -928,7 +959,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
+    if (!(argc == 2 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
           enif_is_binary(env, argv[1]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -967,7 +999,8 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
+    if (!(argc == 1 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->cursor_handle);
@@ -994,9 +1027,10 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle)) &&
-        enif_is_binary(env, argv[1]) &&
-        enif_is_binary(env, argv[2])) {
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
+          enif_is_binary(env, argv[1]) &&
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
@@ -1044,9 +1078,10 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle)) &&
-        enif_is_binary(env, argv[1]) &&
-        enif_is_binary(env, argv[2])) {
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
+          enif_is_binary(env, argv[1]) &&
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
@@ -1094,9 +1129,10 @@ ASYNC_NIF_DECL(
   },
   { // pre
 
-    if (!(enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle)) &&
-        enif_is_binary(env, argv[1]) &&
-        enif_is_binary(env, argv[2])) {
+    if (!(argc == 3 &&
+          enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
+          enif_is_binary(env, argv[1]) &&
+          enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
@@ -1162,7 +1198,7 @@ static ErlNifFunc nif_funcs[] =
 {
     {"conn_open_nif", 3, wterl_conn_open},
     {"conn_close_nif", 2, wterl_conn_close},
-    {"session_open_nif", 2, wterl_session_open},
+    {"session_open_nif", 3, wterl_session_open},
     {"session_close_nif", 2, wterl_session_close},
     {"session_create_nif", 4, wterl_session_create},
     {"session_drop_nif", 4, wterl_session_drop},
