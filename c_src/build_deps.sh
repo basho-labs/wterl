@@ -20,6 +20,7 @@ case "$1" in
 
         (cd wiredtiger-$WT_VSN/build_posix && \
             ../configure --with-pic \
+                         --enable-bzip2 --enable-snappy \
                          --prefix=$BASEDIR/system && \
             make && make install)
 

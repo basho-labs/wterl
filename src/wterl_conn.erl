@@ -84,8 +84,8 @@ init([]) ->
 
 handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
     Opts = [{create, true},
-            config_value(cache_size, Config, "100MB"),
-            config_value(session_max, Config, 100)],
+            wterl:config_value(cache_size, Config, "512MB"),
+            wterl:config_value(session_max, Config, 100)],
     {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
                           {ok, ConnRef}=OK ->
                               Monitor = erlang:monitor(process, Caller),
@@ -169,10 +169,6 @@ do_close(undefined) ->
     ok;
 do_close(ConnRef) ->
     wterl:conn_close(ConnRef).
-
-%% @private
-config_value(Key, Config, Default) ->
-    {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
 
 
 -ifdef(TEST).
