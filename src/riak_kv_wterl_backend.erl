@@ -101,7 +101,7 @@ start(Partition, Config) ->
                     ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
                     ConnectionOpts = [Config,
 				      {create, true},
-				      {loging, true},
+				      {logging, true},
 				      {transactional, true},
 				      {direct_io, ["data", "log"]},
 				      {session_max, 128},
