@@ -46,6 +46,7 @@
          session_drop/3,
          session_get/3,
          session_open/1,
+         session_open/2,
          session_put/4,
          session_rename/3,
          session_rename/4,
@@ -57,6 +58,7 @@
          session_upgrade/3,
          session_verify/2,
          session_verify/3,
+         config_value/3,
          config_to_bin/1,
          fold_keys/3,
          fold/3]).
@@ -78,7 +80,7 @@
 -type key() :: binary().
 -type value() :: binary().
 
--export_type([connection/0, session/0]).
+-export_type([connection/0, session/0, cursor/0]).
 
 -on_load(init/0).
 
@@ -109,7 +111,11 @@ conn_close(_ConnRef) ->
     ?nif_stub.
 
 -spec session_open(connection()) -> {ok, session()} | {error, term()}.
-session_open(_ConnRef) ->
+session_open(ConnRef) ->
+    session_open(ConnRef, ?EMPTY_CONFIG).
+
+-spec session_open(connection(), config()) -> {ok, session()} | {error, term()}.
+session_open(_ConnRef, _Config) ->
     ?nif_stub.
 
 -spec session_close(session()) -> ok | {error, term()}.
@@ -264,8 +270,10 @@ fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
 %% Configuration type information.
 %%
 config_types() ->
-    [{cache_size, string},
+    [{block_compressor, string},
+     {cache_size, string},
      {create, bool},
+     {direct_io, map},
      {drop, list},
      {error_prefix, string},
      {eviction_target, integer},
@@ -275,13 +283,23 @@ config_types() ->
      {hazard_max, integer},
      {home_environment, bool},
      {home_environment_priv, bool},
+     {internal_page_max, string},
+     {isolation, string},
+     {key_type, string},
+     {leaf_page_max, string},
      {logging, bool},
+     {lsm_bloom_config, config},
+     {lsm_chunk_size, string},
      {multiprocess, bool},
      {name, string},
      {session_max, integer},
+     {sync, bool},
      {target, list},
      {transactional, bool},
-     {verbose, string}].
+     {verbose, map}].
+
+config_value(Key, Config, Default) ->
+    {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
 
 config_encode(integer, Value) ->
     try
@@ -290,8 +308,12 @@ config_encode(integer, Value) ->
         _:_ ->
             invalid
     end;
+config_encode(config, Value) ->
+    list_to_binary(["(", config_to_bin(Value, []), ")"]);
 config_encode(list, Value) ->
     list_to_binary(["(", string:join(Value, ","), ")"]);
+config_encode(map, Value) ->
+    list_to_binary(["[", string:join(Value, ","), "]"]);
 config_encode(string, Value) ->
     list_to_binary(Value);
 config_encode(bool, true) ->
@@ -303,9 +325,9 @@ config_encode(_Type, _Value) ->
 
 -spec config_to_bin(config_list()) -> config().
 config_to_bin(Opts) ->
-    config_to_bin(Opts, []).
+    iolist_to_binary([config_to_bin(Opts, []), <<"\0">>]).
 config_to_bin([], Acc) ->
-    iolist_to_binary([Acc, ?EMPTY_CONFIG]);
+    iolist_to_binary(Acc);
 config_to_bin([{Key, Value} | Rest], Acc) ->
     case lists:keysearch(Key, 1, config_types()) of
         {value, {Key, Type}} ->

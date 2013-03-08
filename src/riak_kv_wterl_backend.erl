@@ -99,11 +99,30 @@ start(Partition, Config) ->
             case AppStart of
                 ok ->
                     ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
-                    case wterl_conn:open(DataRoot, Config) of
+                    ConnectionOpts = [Config,
+				      {create, true},
+				      {logging, true},
+				      {transactional, true},
+				      {direct_io, ["data", "log"]},
+				      {session_max, 128},
+				      {cache_size, "2GB"},
+				      {sync, false},
+				      {verbose,
+				       ["block", "shared_cache", "ckpt", "evict",
+					"evictserver", "fileops", "hazard", "lsm",
+					"mutex", "read", "readserver", "reconcile",
+					"salvage", "verify", "write"]}],
+                    case wterl_conn:open(DataRoot, ConnectionOpts) of
                         {ok, ConnRef} ->
                             Table = "table:wt" ++ integer_to_list(Partition),
-                            {ok, SRef} = wterl:session_open(ConnRef),
-                            ok = wterl:session_create(SRef, Table),
+                            SessionOpenOpts = [{isolation, "snapshot"}],
+                            {ok, SRef} = wterl:session_open(ConnRef, wterl:config_to_bin(SessionOpenOpts)),
+                            SessionOpts = [%TODO {block_compressor, "snappy"},
+                                           {internal_page_max, "128K"},
+                                           {leaf_page_max, "128K"},
+                                           {lsm_chunk_size, "200MB"},
+                                           {lsm_bloom_config, [{leaf_page_max, "10MB"}]} ],
+                            ok = wterl:session_create(SRef, Table, wterl:config_to_bin(SessionOpts)),
                             {ok, #state{conn=ConnRef,
                                         table=Table,
                                         session=SRef,
