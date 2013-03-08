@@ -112,7 +112,7 @@ static ErlNifFunc nif_funcs[] =
     {"session_delete", 3, wterl_session_delete},
     {"session_drop", 3, wterl_session_drop},
     {"session_get", 3, wterl_session_get},
-    {"session_open", 1, wterl_session_open},
+    {"session_open", 2, wterl_session_open},
     {"session_put", 4, wterl_session_put},
     {"session_rename", 4, wterl_session_rename},
     {"session_salvage", 3, wterl_session_salvage},
@@ -218,11 +218,13 @@ static inline ERL_NIF_TERM wterl_session_worker(ErlNifEnv* env, int argc, const 
 static ERL_NIF_TERM wterl_session_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     WterlConnHandle* conn_handle;
-    if (enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&conn_handle))
+    ErlNifBinary config;
+    if (enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&conn_handle) &&
+	enif_inspect_binary(env, argv[1], &config))
     {
         WT_CONNECTION* conn = conn_handle->conn;
         WT_SESSION* session;
-        int rc = conn->open_session(conn, NULL, NULL, &session);
+        int rc = conn->open_session(conn, NULL, (const char *)config.data, &session);
         if (rc == 0)
         {
             WterlSessionHandle* session_handle =
