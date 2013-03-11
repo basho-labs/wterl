@@ -2,7 +2,7 @@
 %%
 %% wt_conn: manage a connection to WiredTiger
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc. All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -93,14 +93,14 @@ handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
 	    true ->
 		[];
 	    false ->
-		[{cache_size, config_value(cache_size, Config, "512MB")}]
+		[config_value(cache_size, Config, "512MB")]
 	end,
     OptsC =
 	case proplists:is_defined(session_max, Config) of
 	    true ->
 		[];
 	    false ->
-		[{session_max, config_value(session_max, Config, 100)}]
+		[config_value(session_max, Config, 100)]
 	end,
     Opts = lists:merge([OptsA, OptsB, OptsC, Config]),
     {Reply, NState} =
@@ -233,14 +233,14 @@ simple_test_() ->
        end}]}.
 
 open_one() ->
-    {ok, Ref} = open("test/wt-backend", [{session_max, 20}]),
+    {ok, Ref} = open("test/wt-backend", [{create,true},{session_max, 20}]),
     true = is_open(),
     close(Ref),
     false = is_open(),
     ok.
 
 open_and_wait(Pid) ->
-    {ok, Ref} = open("test/wt-backend"),
+    {ok, Ref} = open("test/wt-backend", [{create,true}]),
     Pid ! open,
     receive
         close ->

@@ -2,7 +2,7 @@
 %%
 %% wt: Erlang Wrapper for WiredTiger
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc. All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -64,7 +64,6 @@
          fold/3]).
 
 -ifdef(TEST).
--export([config_to_bin/1]).
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
 -define(QC_OUT(P),

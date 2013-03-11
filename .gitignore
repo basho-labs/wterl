@@ -5,4 +5,5 @@ priv/*.so
 c_src/system
 c_src/wiredtiger-*/
 c_src/*.o
+deps
 *~

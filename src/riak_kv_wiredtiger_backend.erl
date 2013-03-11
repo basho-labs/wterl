@@ -2,7 +2,7 @@
 %%
 %% riak_kv_wiredtiger_backend: Use WiredTiger for Riak/KV storage
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -80,9 +80,9 @@ capabilities(_, _) ->
 
 %% @doc Start the WiredTiger backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
-start(Partition, Config) ->
+start(Partition, Config0) ->
     %% Get the data root directory
-    case app_helper:get_prop_or_env(data_root, Config, wt) of
+    case app_helper:get_prop_or_env(data_root, Config0, wt) of
 	<<"">> ->
             lager:error("Failed to startup WiredTiger: data_root is not valid"),
             {error, data_root_unset};
@@ -93,6 +93,7 @@ start(Partition, Config) ->
             lager:error("Failed to startup WiredTiger: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
+            Config = lists:keydelete(data_root, 1, Config0),
 	    CacheSize =
 		case proplists:get_value(cache_size, Config) of
 		    undefined ->
@@ -508,13 +509,13 @@ best_guess_at_a_reasonable_cache_size(ChunkSizeInMB) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/wiredtiger-backend"),
-    application:set_env(wt, data_root, "test/wiredtiger-backend"),
+    ?assertCmd("rm -rf test/wt-backend"),
+    application:set_env(wt, data_root, "test/wt-backend"),
     temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/wiredtiger-backend"),
+    ?assertCmd("rm -rf test/wt-backend"),
     application:set_env(wt, data_root, ""),
-    temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wiredtiger-backend"}]).
+    temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wt-backend"}]).
 
 -endif.
