@@ -2,7 +2,7 @@
 %%
 %% wt_conn: manage a connection to WiredTiger
 %%
-%% Copyright (c) 2012-2013 Basho Technologies, Inc. All Rights Reserved.
+%% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,6 +26,7 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-compile(export_all).
 -endif.
 
 %% API
@@ -83,26 +84,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
-    OptsA =
-	case proplists:get_bool(create, Config) of
-	    false -> [{create, false}];
-	    _ ->     [{create, true}]
-	end,
-    OptsB =
-	case proplists:is_defined(shared_cache, Config) of
-	    true ->
-		[];
-	    false ->
-		[config_value(cache_size, Config, "512MB")]
-	end,
-    OptsC =
-	case proplists:is_defined(session_max, Config) of
-	    true ->
-		[];
-	    false ->
-		[config_value(session_max, Config, 100)]
-	end,
-    Opts = lists:merge([OptsA, OptsB, OptsC, Config]),
+    Opts = tailor_config(Config),
     {Reply, NState} =
 	case wt:conn_open(Dir, wt:config_to_bin(Opts)) of
 	    {ok, ConnRef}=OK ->
@@ -192,6 +174,35 @@ do_close(ConnRef) ->
 config_value(Key, Config, Default) ->
     {Key, app_helper:get_prop_or_env(Key, Config, wt, Default)}.
 
+%% @private
+map_cfg([], Acc) ->
+    Acc;
+map_cfg([Fun|T], Acc) ->
+    map_cfg(T, Fun(Acc)).
+
+tailor_config(Config) ->
+    map_cfg([fun (Acc) ->
+		     case proplists:is_defined(create, Acc) of
+			 false -> [{create, true} | Acc];
+			 true -> Acc
+		     end
+		 end,
+	     fun (Acc) ->
+		     case proplists:is_defined(shared_cache, Acc) of
+			 false ->
+			     [config_value(cache_size, Acc, "512MB") | Acc];
+			 true ->
+			     Acc
+		     end
+	     end,
+	     fun (Acc) ->
+		     case proplists:is_defined(session_max, Acc) of
+			 false ->
+			     [config_value(session_max, Acc, 100) | Acc];
+			 true ->
+			     Acc
+		     end
+	     end], Config).
 
 -ifdef(TEST).
 
@@ -233,14 +244,14 @@ simple_test_() ->
        end}]}.
 
 open_one() ->
-    {ok, Ref} = open("test/wt-backend", [{create,true},{session_max, 20}]),
+    {ok, Ref} = open("test/wt-backend", [{create, true},{session_max, 20}]),
     true = is_open(),
     close(Ref),
     false = is_open(),
     ok.
 
 open_and_wait(Pid) ->
-    {ok, Ref} = open("test/wt-backend", [{create,true}]),
+    {ok, Ref} = open("test/wt-backend", [{create, true}]),
     Pid ! open,
     receive
         close ->

@@ -2,7 +2,7 @@
 %%
 %% riak_kv_wiredtiger_backend: Use WiredTiger for Riak/KV storage
 %%
-%% Copyright (c) 2012-2013 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2012 Basho Technologies, Inc.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -83,31 +83,11 @@ capabilities(_, _) ->
 start(Partition, Config0) ->
     %% Get the data root directory
     case app_helper:get_prop_or_env(data_root, Config0, wt) of
-	<<"">> ->
-            lager:error("Failed to startup WiredTiger: data_root is not valid"),
-            {error, data_root_unset};
-	[] ->
-            lager:error("Failed to startup WiredTiger: data_root is empty"),
-            {error, data_root_unset};
         undefined ->
             lager:error("Failed to startup WiredTiger: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
-            Config = lists:keydelete(data_root, 1, Config0),
-	    CacheSize =
-		case proplists:get_value(cache_size, Config) of
-		    undefined ->
-			case application:get_env(wt, cache_size) of
-			    {ok, Value} ->
-				Value;
-			    _ ->
-				SizeEst = best_guess_at_a_reasonable_cache_size(64),
-				%% lager:warning("Using estimated best cache size of ~p for WiredTiger backend.", [SizeEst]),
-				SizeEst
-			end;
-		    Value ->
-			Value
-		end,
+	    Config = lists:keydelete(data_root, 1, Config0),
 	    AppStarted =
 		case application:start(wt) of
 		    ok ->
@@ -120,6 +100,7 @@ start(Partition, Config0) ->
 		end,
 	    case AppStarted of
 		ok ->
+		    CacheSize = size_cache(64, Config),
 		    ConnectionOpts =
 			[Config,
 			 {create, true},
@@ -474,6 +455,21 @@ fetch_status(_Cursor, not_found, Acc) ->
 fetch_status(Cursor, {ok, Stat}, Acc) ->
     [What,Val|_] = [binary_to_list(B) || B <- binary:split(Stat, [<<0>>], [global])],
     fetch_status(Cursor, wt:cursor_next_value(Cursor), [{What,Val}|Acc]).
+
+size_cache(ChunkSize, Config) ->
+    case proplists:get_value(cache_size, Config) of
+	undefined ->
+	    case application:get_env(wt, cache_size) of
+		{ok, Value} ->
+		    Value;
+		_ ->
+		    SizeEst = best_guess_at_a_reasonable_cache_size(ChunkSize),
+		    %% lager:warning("Using estimated best cache size of ~p for WiredTiger backend.", [SizeEst]),
+		    SizeEst
+	    end;
+	Value ->
+	    Value
+    end.
 
 best_guess_at_a_reasonable_cache_size(ChunkSizeInMB) ->
     RunningApps = application:which_applications(),

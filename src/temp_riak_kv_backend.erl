@@ -272,7 +272,7 @@ empty_check({Backend, State}) ->
     }.
 
 setup({BackendMod, Config}) ->
-    {ok, S} = BackendMod:start(0, Config),
+    {ok, S} = BackendMod:start(42, Config),
     {BackendMod, S}.
 
 cleanup({BackendMod, S}) ->
