@@ -80,14 +80,13 @@ capabilities(_, _) ->
 
 %% @doc Start the WiredTiger backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
-start(Partition, Config0) ->
+start(Partition, Config) ->
     %% Get the data root directory
-    case app_helper:get_prop_or_env(data_root, Config0, wt) of
+    case app_helper:get_prop_or_env(data_root, Config, wt) of
         undefined ->
             lager:error("Failed to startup WiredTiger: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
-	    Config = lists:keydelete(data_root, 1, Config0),
 	    AppStarted =
 		case application:start(wt) of
 		    ok ->
@@ -101,15 +100,27 @@ start(Partition, Config0) ->
 	    case AppStarted of
 		ok ->
 		    CacheSize = size_cache(64, Config),
-		    ConnectionOpts =
-			[Config,
-			 {create, true},
+		    WTConfig =
+			case proplists:lookup(wt, Config) of
+			    none ->
+				case application:get_env(wt) of
+				    undefined ->
+					[];
+				    WTSectionOfEnv ->
+					WTSectionOfEnv
+				end;
+			    WTSectionOfConfig ->
+				WTSectionOfConfig
+			end,
+		    ConnectionOpts = lists:merge([
+			WTConfig,
+			[{create, true},
 			 {logging, true},
 			 {transactional, true},
 			 {session_max, 128},
 			 {shared_cache, [{chunk, "64MB"},
 					 {min, "1GB"},
-					 {name, "wt-vnode-cache"},
+					 {name, "wt-cache"},
 					 {size, CacheSize}]},
 			 {sync, false}
 			 %% {verbose,
@@ -117,7 +128,7 @@ start(Partition, Config0) ->
 			 %%   "evictserver", "fileops", "hazard", "lsm",
 			 %%   "mutex", "read", "readserver", "reconcile",
 			 %%   "salvage", "verify", "write"]}
-			],
+			]]),
 		    ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
                     case wt_conn:open(DataRoot, ConnectionOpts) of
                         {ok, ConnRef} ->
