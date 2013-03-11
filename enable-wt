@@ -45,7 +45,7 @@ file=./deps/riak_kv/rebar.config
 if ! grep -q wt $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
-    perl -i.orig -pe '/\bsext\b/ && print qq(        {wt, ".*", {git, "git\@github.com:basho-labs/wt.git", "master"}},\n)' $file
+    perl -i.orig -pe '/\bsext\b/ && print qq(        {wt, ".*", {git, "git\@github.com:basho-labs/wterl.git", "gsb-shared-cache-across-vnodes"}},\n)' $file
 fi
 
 rebar get-deps
@@ -55,6 +55,6 @@ make all stagedevrel
 
 echo
 echo 'Modifying all dev/dev*/etc/app.config files, saving originals with .orig suffix...'
-perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_wt_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {wt, [\n          {data_root, "./data/wt"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
+perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_wiredtiger_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {wt, [\n          {data_root, "./data/wt"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
 
 exit 0
