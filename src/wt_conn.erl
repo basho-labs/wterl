@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% wterl_conn: manage a connection to WiredTiger
+%% wt_conn: manage a connection to WiredTiger
 %%
 %% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
 %%
@@ -19,7 +19,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(wterl_conn).
+-module(wt_conn).
 -author('Steve Vinoski <steve@basho.com>').
 
 -behaviour(gen_server).
@@ -37,7 +37,7 @@
          terminate/2, code_change/3]).
 
 -record(state, {
-          conn :: wterl:connection()
+          conn :: wt:connection()
          }).
 
 -type config_list() :: [{atom(), any()}].
@@ -54,11 +54,11 @@ start_link() ->
 stop() ->
     gen_server:cast(?MODULE, stop).
 
--spec open(string()) -> {ok, wterl:connection()} | {error, term()}.
+-spec open(string()) -> {ok, wt:connection()} | {error, term()}.
 open(Dir) ->
     open(Dir, []).
 
--spec open(string(), config_list()) -> {ok, wterl:connection()} | {error, term()}.
+-spec open(string(), config_list()) -> {ok, wt:connection()} | {error, term()}.
 open(Dir, Config) ->
     gen_server:call(?MODULE, {open, Dir, Config, self()}, infinity).
 
@@ -70,7 +70,7 @@ is_open() ->
 get() ->
     gen_server:call(?MODULE, get, infinity).
 
--spec close(wterl:connection()) -> ok.
+-spec close(wt:connection()) -> ok.
 close(_Conn) ->
     gen_server:call(?MODULE, {close, self()}, infinity).
 
@@ -79,25 +79,43 @@ close(_Conn) ->
 %% ====================================================================
 
 init([]) ->
-    true = wterl_ets:table_ready(),
+    true = wt_conn_deputy:table_ready(),
     {ok, #state{}}.
 
 handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
-    Opts = [{create, true},
-            config_value(cache_size, Config, "100MB"),
-            config_value(session_max, Config, 100)],
-    {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
-                          {ok, ConnRef}=OK ->
-                              Monitor = erlang:monitor(process, Caller),
-                              true = ets:insert(wterl_ets, {Monitor, Caller}),
-                              {OK, State#state{conn = ConnRef}};
-                          Error ->
-                              {Error, State}
-                      end,
+    OptsA =
+	case proplists:get_bool(create, Config) of
+	    false -> [{create, false}];
+	    _ ->     [{create, true}]
+	end,
+    OptsB =
+	case proplists:is_defined(shared_cache, Config) of
+	    true ->
+		[];
+	    false ->
+		[{cache_size, config_value(cache_size, Config, "512MB")}]
+	end,
+    OptsC =
+	case proplists:is_defined(session_max, Config) of
+	    true ->
+		[];
+	    false ->
+		[{session_max, config_value(session_max, Config, 100)}]
+	end,
+    Opts = lists:merge([OptsA, OptsB, OptsC, Config]),
+    {Reply, NState} =
+	case wt:conn_open(Dir, wt:config_to_bin(Opts)) of
+	    {ok, ConnRef}=OK ->
+		Monitor = erlang:monitor(process, Caller),
+		true = ets:insert(wt_conn_deputy, {Monitor, Caller}),
+		{OK, State#state{conn = ConnRef}};
+	    Error ->
+		{Error, State}
+	end,
     {reply, Reply, NState};
 handle_call({open, _Dir, _Config, Caller}, _From,#state{conn=ConnRef}=State) ->
     Monitor = erlang:monitor(process, Caller),
-    true = ets:insert(wterl_ets, {Monitor, Caller}),
+    true = ets:insert(wt_conn_deputy, {Monitor, Caller}),
     {reply, {ok, ConnRef}, State};
 
 handle_call(is_open, _From, #state{conn=ConnRef}=State) ->
@@ -109,10 +127,10 @@ handle_call(get, _From, #state{conn=ConnRef}=State) ->
     {reply, {ok, ConnRef}, State};
 
 handle_call({close, Caller}, _From, #state{conn=ConnRef}=State) ->
-    {[{Monitor, Caller}], _} = ets:match_object(wterl_ets, {'_', Caller}, 1),
+    {[{Monitor, Caller}], _} = ets:match_object(wt_conn_deputy, {'_', Caller}, 1),
     true = erlang:demonitor(Monitor, [flush]),
-    true = ets:delete(wterl_ets, Monitor),
-    NState = case ets:info(wterl_ets, size) of
+    true = ets:delete(wt_conn_deputy, Monitor),
+    NState = case ets:info(wt_conn_deputy, size) of
                  0 ->
                      do_close(ConnRef),
                      State#state{conn=undefined};
@@ -129,17 +147,17 @@ handle_cast(stop, #state{conn=ConnRef}=State) ->
     do_close(ConnRef),
     ets:foldl(fun({Monitor, _}, _) ->
                       true = erl:demonitor(Monitor, [flush]),
-                      ets:delete(wterl_ets, Monitor)
-              end, true, wterl_ets),
+                      ets:delete(wt_conn_deputy, Monitor)
+              end, true, wt_conn_deputy),
     {stop, normal, State#state{conn=undefined}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', Monitor, _, _, _}, #state{conn=ConnRef}=State) ->
-    NState = case ets:lookup(wterl_ets, Monitor) of
+    NState = case ets:lookup(wt_conn_deputy, Monitor) of
                  [{Monitor, _}] ->
-                     true = ets:delete(wterl_ets, Monitor),
-                     case ets:info(wterl_ets, size) of
+                     true = ets:delete(wt_conn_deputy, Monitor),
+                     case ets:info(wt_conn_deputy, size) of
                          0 ->
                              do_close(ConnRef),
                              State#state{conn=undefined};
@@ -168,16 +186,16 @@ code_change(_OldVsn, State, _Extra) ->
 do_close(undefined) ->
     ok;
 do_close(ConnRef) ->
-    wterl:conn_close(ConnRef).
+    wt:conn_close(ConnRef).
 
 %% @private
 config_value(Key, Config, Default) ->
-    {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
+    {Key, app_helper:get_prop_or_env(Key, Config, wt, Default)}.
 
 
 -ifdef(TEST).
 
--define(DATADIR, "test/wterl-backend").
+-define(DATADIR, "test/wt-backend").
 
 simple_test_() ->
     {spawn,
@@ -185,7 +203,7 @@ simple_test_() ->
        fun() ->
                ?assertCmd("rm -rf " ++ ?DATADIR),
                ?assertMatch(ok, filelib:ensure_dir(filename:join(?DATADIR, "x"))),
-               EtsPid = case wterl_ets:start_link() of
+               EtsPid = case wt_conn_deputy:start_link() of
                             {ok, Pid1} ->
                                 Pid1;
                             {error, {already_started, Pid1}} ->
@@ -201,7 +219,7 @@ simple_test_() ->
        end,
        fun(_) ->
                stop(),
-               wterl_ets:stop()
+               wt_conn_deputy:stop()
        end,
        fun(_) ->
                {inorder,
@@ -215,14 +233,14 @@ simple_test_() ->
        end}]}.
 
 open_one() ->
-    {ok, Ref} = open("test/wterl-backend", [{session_max, 20},{cache_size, "1MB"}]),
+    {ok, Ref} = open("test/wt-backend", [{session_max, 20}]),
     true = is_open(),
     close(Ref),
     false = is_open(),
     ok.
 
 open_and_wait(Pid) ->
-    {ok, Ref} = open("test/wterl-backend"),
+    {ok, Ref} = open("test/wt-backend"),
     Pid ! open,
     receive
         close ->

@@ -1,12 +1,12 @@
 #!/bin/sh
 
-# This script adds wterl to a riak github repo. Run it in the riak repo
+# This script adds wt to a riak github repo. Run it in the riak repo
 # directory.
 #
-# First it adds wterl, then runs "make all devrel" and then enables the
-# wterl storage backend in the resulting dev nodes.
+# First it adds wt, then runs "make all devrel" and then enables the
+# wt storage backend in the resulting dev nodes.
 #
-# This script is intended to be temporary. Once wterl is made into a proper
+# This script is intended to be temporary. Once wt is made into a proper
 # riak citizen, this script will no longer be needed.
 
 set -e
@@ -35,17 +35,17 @@ fi
 rebar get-deps
 
 file=./deps/riak_kv/src/riak_kv.app.src
-if ! grep -q hanoidb $file && ! grep -q wterl $file ; then
+if ! grep -q hanoidb $file && ! grep -q wt $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
-    perl -i.orig -pe '/\bos_mon,/ && print qq(                  wterl,\n)' $file
+    perl -i.orig -pe '/\bos_mon,/ && print qq(                  wt,\n)' $file
 fi
 
 file=./deps/riak_kv/rebar.config
-if ! grep -q wterl $file ; then
+if ! grep -q wt $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
-    perl -i.orig -pe '/\bsext\b/ && print qq(        {wterl, ".*", {git, "git\@github.com:basho-labs/wterl.git", "master"}},\n)' $file
+    perl -i.orig -pe '/\bsext\b/ && print qq(        {wt, ".*", {git, "git\@github.com:basho-labs/wt.git", "master"}},\n)' $file
 fi
 
 rebar get-deps
@@ -55,6 +55,6 @@ make all stagedevrel
 
 echo
 echo 'Modifying all dev/dev*/etc/app.config files, saving originals with .orig suffix...'
-perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_wterl_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {wterl, [\n          {data_root, "./data/wt"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
+perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_wt_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {wt, [\n          {data_root, "./data/wt"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
 
 exit 0

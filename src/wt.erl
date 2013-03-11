@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% wterl: Erlang Wrapper for WiredTiger
+%% wt: Erlang Wrapper for WiredTiger
 %%
 %% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
 %%
@@ -19,7 +19,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(wterl).
+-module(wt).
 -export([conn_open/2,
          conn_close/1,
          cursor_close/1,
@@ -64,6 +64,7 @@
          fold/3]).
 
 -ifdef(TEST).
+-export([config_to_bin/1]).
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
 -define(QC_OUT(P),
@@ -272,6 +273,7 @@ fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
 config_types() ->
     [{block_compressor, string},
      {cache_size, string},
+     {chunk, string},
      {create, bool},
      {direct_io, map},
      {drop, list},
@@ -290,16 +292,19 @@ config_types() ->
      {logging, bool},
      {lsm_bloom_config, config},
      {lsm_chunk_size, string},
+     {min, string},
      {multiprocess, bool},
      {name, string},
      {session_max, integer},
+     {shared_cache, config},
+     {size, string},
      {sync, bool},
      {target, list},
      {transactional, bool},
      {verbose, map}].
 
 config_value(Key, Config, Default) ->
-    {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
+    {Key, app_helper:get_prop_or_env(Key, Config, wt, Default)}.
 
 config_encode(integer, Value) ->
     try
@@ -328,6 +333,8 @@ config_to_bin(Opts) ->
     iolist_to_binary([config_to_bin(Opts, []), <<"\0">>]).
 config_to_bin([], Acc) ->
     iolist_to_binary(Acc);
+config_to_bin([ [] | Rest], Acc) ->
+    config_to_bin(Rest, Acc);
 config_to_bin([{Key, Value} | Rest], Acc) ->
     case lists:keysearch(Key, 1, config_types()) of
         {value, {Key, Type}} ->
@@ -353,12 +360,12 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 %% ===================================================================
 -ifdef(TEST).
 
--define(TEST_DATA_DIR, "test/wterl.basic").
+-define(TEST_DATA_DIR, "test/wt.basic").
 
 open_test_conn(DataDir) ->
     ?assertCmd("rm -rf "++DataDir),
     ?assertMatch(ok, filelib:ensure_dir(filename:join(DataDir, "x"))),
-    OpenConfig = config_to_bin([{create,true},{cache_size,"100MB"}]),
+    OpenConfig = config_to_bin([{create,true},{cache_size,"1GB"}]),
     {ok, ConnRef} = conn_open(DataDir, OpenConfig),
     ConnRef.
 
@@ -433,7 +440,7 @@ various_session_test_() ->
                 end},
                {"session checkpoint",
                 fun() ->
-                        Cfg = wterl:config_to_bin([{target, ["\"table:test\""]}]),
+                        Cfg = wt:config_to_bin([{target, ["\"table:test\""]}]),
                         ?assertMatch(ok, session_checkpoint(SRef, Cfg)),
                         ?assertMatch({ok, <<"apple">>},
                                      session_get(SRef, "table:test", <<"a">>))
@@ -608,10 +615,10 @@ ops(Keys, Values) ->
 apply_kv_ops([], _SRef, _Tbl, Acc0) ->
     Acc0;
 apply_kv_ops([{put, K, V} | Rest], SRef, Tbl, Acc0) ->
-    ok = wterl:session_put(SRef, Tbl, K, V),
+    ok = wt:session_put(SRef, Tbl, K, V),
     apply_kv_ops(Rest, SRef, Tbl, orddict:store(K, V, Acc0));
 apply_kv_ops([{delete, K, _} | Rest], SRef, Tbl, Acc0) ->
-    ok = case wterl:session_delete(SRef, Tbl, K) of
+    ok = case wt:session_delete(SRef, Tbl, K) of
              ok ->
                  ok;
              not_found ->
@@ -625,28 +632,28 @@ prop_put_delete() ->
     ?LET({Keys, Values}, {keys(), values()},
          ?FORALL(Ops, eqc_gen:non_empty(list(ops(Keys, Values))),
                  begin
-                     DataDir = "/tmp/wterl.putdelete.qc",
+                     DataDir = "/tmp/wt.putdelete.qc",
                      Table = "table:eqc",
                      ?cmd("rm -rf "++DataDir),
                      ok = filelib:ensure_dir(filename:join(DataDir, "x")),
-                     Cfg = wterl:config_to_bin([{create,true}]),
-                     {ok, Conn} = wterl:conn_open(DataDir, Cfg),
-                     {ok, SRef} = wterl:session_open(Conn),
+                     Cfg = wt:config_to_bin([{create,true}]),
+                     {ok, Conn} = wt:conn_open(DataDir, Cfg),
+                     {ok, SRef} = wt:session_open(Conn),
                      try
-                         wterl:session_create(SRef, Table),
+                         wt:session_create(SRef, Table),
                          Model = apply_kv_ops(Ops, SRef, Table, []),
 
                          %% Validate that all deleted values return not_found
                          F = fun({K, deleted}) ->
-                                     ?assertEqual(not_found, wterl:session_get(SRef, Table, K));
+                                     ?assertEqual(not_found, wt:session_get(SRef, Table, K));
                                 ({K, V}) ->
-                                     ?assertEqual({ok, V}, wterl:session_get(SRef, Table, K))
+                                     ?assertEqual({ok, V}, wt:session_get(SRef, Table, K))
                              end,
                          lists:map(F, Model),
                          true
                      after
-                         wterl:session_close(SRef),
-                         wterl:conn_close(Conn)
+                         wt:session_close(SRef),
+                         wt:conn_close(Conn)
                      end
                  end)).
 

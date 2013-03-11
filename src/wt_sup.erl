@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% wterl_sup: supervisor for WiredTiger database app
+%% wt_sup: supervisor for WiredTiger database app
 %%
 %% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
 %%
@@ -19,7 +19,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(wterl_sup).
+-module(wt_sup).
 -author('Steve Vinoski <steve@basho.com>').
 
 -behaviour(supervisor).
@@ -45,5 +45,5 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    {ok, {{one_for_one, 5, 10}, [?CHILD(wterl_ets, worker),
-                                 ?CHILD(wterl_conn, worker)]}}.
+    {ok, {{one_for_one, 5, 10}, [?CHILD(wt_conn_deputy, worker),
+                                 ?CHILD(wt_conn, worker)]}}.

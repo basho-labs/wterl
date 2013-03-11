@@ -1,4 +1,4 @@
-TARGET=		wterl
+TARGET=		wt
 
 REBAR=		./rebar
 #REBAR=		/usr/bin/env rebar
@@ -18,15 +18,15 @@ get-deps:
 update-deps:
 	@$(REBAR) update-deps
 
-c_src/wterl.o:
-	touch c_src/wterl.c
+c_src/wt.o:
+	touch c_src/wt.c
 
 ebin/app_helper.beam:
 	@echo You need to:
 	@echo cp ../riak/deps/riak_core/ebin/app_helper.beam ebin
 	@/bin/false
 
-compile: c_src/wterl.o ebin/app_helper.beam
+compile: c_src/wt.o ebin/app_helper.beam
 	@$(REBAR) compile
 
 clean:

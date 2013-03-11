@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% wterl: access to WiredTiger database
+%% wt: access to WiredTiger database
 %%
 %% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
 %%
@@ -19,7 +19,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(wterl_app).
+-module(wt_app).
 -author('Steve Vinoski <steve@basho.com>').
 
 -behaviour(application).
@@ -33,7 +33,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    wterl_sup:start_link().
+    wt_sup:start_link().
 
 stop(_State) ->
     ok.

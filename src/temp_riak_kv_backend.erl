@@ -23,8 +23,8 @@
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 %%%
 %%% This is a temporary copy of riak_kv_backend, just here to keep
-%%% wterl development private for now. When riak_kv_wterl_backend is
-%%% moved to riak_kv, delete this file.
+%%% WiredTiger development private for now. When riak_kv_wiredtiger_backend
+%%% is moved to riak_kv, delete this file.
 %%%
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 
@@ -36,7 +36,6 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--compile(export_all).
 -export([standard_test/2]).
 -endif.
 
@@ -272,8 +271,7 @@ empty_check({Backend, State}) ->
     }.
 
 setup({BackendMod, Config}) ->
-    %% Start the backend
-    {ok, S} = BackendMod:start(42, Config),
+    {ok, S} = BackendMod:start(0, Config),
     {BackendMod, S}.
 
 cleanup({BackendMod, S}) ->

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_kv_wterl_backend: WiredTiger Driver for Riak
+%% riak_kv_wiredtiger_backend: Use WiredTiger for Riak/KV storage
 %%
 %% Copyright (c) 2012 Basho Technologies, Inc.  All Rights Reserved.
 %%
@@ -20,7 +20,7 @@
 %%
 %% -------------------------------------------------------------------
 
--module(riak_kv_wterl_backend).
+-module(riak_kv_wiredtiger_backend).
 -behavior(temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
 
@@ -50,9 +50,9 @@
 %%-define(CAPABILITIES, [async_fold, indexes]).
 -define(CAPABILITIES, [async_fold]).
 
--record(state, {conn :: wterl:connection(),
+-record(state, {conn :: wt:connection(),  %% There is one shared conection
+                session :: wt:session(),  %% But a session per
                 table :: string(),
-                session :: wterl:session(),
                 partition :: integer()}).
 
 -type state() :: #state{}.
@@ -78,79 +78,104 @@ capabilities(_) ->
 capabilities(_, _) ->
     {ok, ?CAPABILITIES}.
 
-%% @doc Start the wterl backend
+%% @doc Start the WiredTiger backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
 start(Partition, Config) ->
     %% Get the data root directory
-    case app_helper:get_prop_or_env(data_root, Config, wterl) of
+    case app_helper:get_prop_or_env(data_root, Config, wt) of
+	<<"">> ->
+            lager:error("Failed to startup WiredTiger: data_root is not valid"),
+            {error, data_root_unset};
+	[] ->
+            lager:error("Failed to startup WiredTiger: data_root is empty"),
+            {error, data_root_unset};
         undefined ->
-            lager:error("Failed to create wterl dir: data_root is not set"),
+            lager:error("Failed to startup WiredTiger: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
-            AppStart = case application:start(wterl) of
-                           ok ->
-                               ok;
-                           {error, {already_started, _}} ->
-                               ok;
-                           {error, Reason} ->
-                               lager:error("Failed to start wterl: ~p", [Reason]),
-                               {error, Reason}
-                       end,
-            case AppStart of
-                ok ->
-                    ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
-                    ConnectionOpts = [Config,
-				      {create, true},
-				      {logging, true},
-				      {transactional, true},
-				      {session_max, 128},
-				      {cache_size, "2GB"},
-				      {sync, false}
-				      %% {verbose,
-				      %%  ["block", "shared_cache", "ckpt", "evict",
-				      %% 	"evictserver", "fileops", "hazard", "lsm",
-				      %% 	"mutex", "read", "readserver", "reconcile",
-				      %% 	"salvage", "verify", "write"]}
-				     ],
-                    case wterl_conn:open(DataRoot, ConnectionOpts) of
+	    CacheSize =
+		case proplists:get_value(cache_size, Config) of
+		    undefined ->
+			case application:get_env(wt, cache_size) of
+			    {ok, Value} ->
+				Value;
+			    _ ->
+				SizeEst = best_guess_at_a_reasonable_cache_size(64),
+				%% lager:warning("Using estimated best cache size of ~p for WiredTiger backend.", [SizeEst]),
+				SizeEst
+			end;
+		    Value ->
+			Value
+		end,
+	    AppStarted =
+		case application:start(wt) of
+		    ok ->
+			ok;
+		    {error, {already_started, _}} ->
+			ok;
+		    {error, Reason} ->
+			lager:error("Failed to start WiredTiger: ~p", [Reason]),
+			{error, Reason}
+		end,
+	    case AppStarted of
+		ok ->
+		    ConnectionOpts =
+			[Config,
+			 {create, true},
+			 {logging, true},
+			 {transactional, true},
+			 {session_max, 128},
+			 {shared_cache, [{chunk, "64MB"},
+					 {min, "1GB"},
+					 {name, "wt-vnode-cache"},
+					 {size, CacheSize}]},
+			 {sync, false}
+			 %% {verbose,
+			 %%  ["block", "shared_cache", "ckpt", "evict",
+			 %%   "evictserver", "fileops", "hazard", "lsm",
+			 %%   "mutex", "read", "readserver", "reconcile",
+			 %%   "salvage", "verify", "write"]}
+			],
+		    ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
+                    case wt_conn:open(DataRoot, ConnectionOpts) of
                         {ok, ConnRef} ->
                             Table = "lsm:wt" ++ integer_to_list(Partition),
-                            SessionOpenOpts = [{isolation, "snapshot"}],
-                            {ok, SRef} = wterl:session_open(ConnRef, wterl:config_to_bin(SessionOpenOpts)),
-                            SessionOpts = [%TODO {block_compressor, "snappy"},
-                                           {internal_page_max, "128K"},
-                                           {leaf_page_max, "256K"},
-                                           {lsm_chunk_size, "256MB"},
-                                           {lsm_bloom_config, [{leaf_page_max, "16MB"}]} ],
-                            ok = wterl:session_create(SRef, Table, wterl:config_to_bin(SessionOpts)),
+                            {ok, SRef} = wt:session_open(ConnRef),
+			    SessionOpts =
+				[%TODO {block_compressor, "snappy"},
+				 {internal_page_max, "128K"},
+				 {leaf_page_max, "256K"},
+				 {lsm_chunk_size, "256MB"},
+				 {lsm_bloom_config, [{leaf_page_max, "16MB"}]} ],
+                            ok = wt:session_create(SRef, Table, wt:config_to_bin(SessionOpts)),
                             {ok, #state{conn=ConnRef,
                                         table=Table,
                                         session=SRef,
                                         partition=Partition}};
                         {error, ConnReason}=ConnError ->
-                            lager:error("Failed to start wterl backend: ~p\n",
+                            lager:error("Failed to start WiredTiger storage backend: ~p\n",
                                         [ConnReason]),
                             ConnError
                     end;
-                Error ->
-                    Error
-            end
+		Error ->
+		    Error
+	    end
     end.
 
-%% @doc Stop the wterl backend
+%% @doc Stop the WiredTiger backend
 -spec stop(state()) -> ok.
 stop(#state{conn=ConnRef, session=SRef}) ->
-    ok = wterl:session_close(SRef),
-    wterl_conn:close(ConnRef).
+    ok = wt:session_close(SRef),
+    wt_conn:close(ConnRef).
 
-%% @doc Retrieve an object from the wterl backend
+%% @doc Retrieve an object from the WiredTiger backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
                  {ok, any(), state()} |
                  {ok, not_found, state()} |
                  {error, term(), state()}.
 get(Bucket, Key, #state{table=Table, session=SRef}=State) ->
     WTKey = to_object_key(Bucket, Key),
-    case wterl:session_get(SRef, Table, WTKey) of
+    case wt:session_get(SRef, Table, WTKey) of
         {ok, Value} ->
             {ok, Value, State};
         not_found  ->
@@ -159,8 +184,8 @@ get(Bucket, Key, #state{table=Table, session=SRef}=State) ->
             {error, Reason, State}
     end.
 
-%% @doc Insert an object into the wterl backend.
-%% NOTE: The wterl backend does not currently support
+%% @doc Insert an object into the WiredTiger backend.
+%% NOTE: The WiredTiger backend does not currently support
 %% secondary indexing and the_IndexSpecs parameter
 %% is ignored.
 -type index_spec() :: {add, Index, SecondaryKey} | {remove, Index, SecondaryKey}.
@@ -169,15 +194,15 @@ get(Bucket, Key, #state{table=Table, session=SRef}=State) ->
                  {error, term(), state()}.
 put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{table=Table, session=SRef}=State) ->
     WTKey = to_object_key(Bucket, PrimaryKey),
-    case wterl:session_put(SRef, Table, WTKey, Val) of
+    case wt:session_put(SRef, Table, WTKey, Val) of
         ok ->
             {ok, State};
         {error, Reason} ->
             {error, Reason, State}
     end.
 
-%% @doc Delete an object from the wterl backend
-%% NOTE: The wterl backend does not currently support
+%% @doc Delete an object from the WiredTiger backend
+%% NOTE: The WiredTiger backend does not currently support
 %% secondary indexing and the_IndexSpecs parameter
 %% is ignored.
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
@@ -185,7 +210,7 @@ put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{table=Table, session=SRef}=Stat
                     {error, term(), state()}.
 delete(Bucket, Key, _IndexSpecs, #state{table=Table, session=SRef}=State) ->
     WTKey = to_object_key(Bucket, Key),
-    case wterl:session_delete(SRef, Table, WTKey) of
+    case wt:session_delete(SRef, Table, WTKey) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -201,18 +226,18 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
     FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
-                {ok, SRef} = wterl:session_open(ConnRef),
-                {ok, Cursor} = wterl:cursor_open(SRef, Table),
+                {ok, SRef} = wt:session_open(ConnRef),
+                {ok, Cursor} = wt:cursor_open(SRef, Table),
                 try
                     {FoldResult, _} =
-                        wterl:fold_keys(Cursor, FoldFun, {Acc, []}),
+                        wt:fold_keys(Cursor, FoldFun, {Acc, []}),
                     FoldResult
                 catch
                     {break, AccFinal} ->
                         AccFinal
                 after
-                    ok = wterl:cursor_close(Cursor),
-                    ok = wterl:session_close(SRef)
+                    ok = wt:cursor_close(Cursor),
+                    ok = wt:session_close(SRef)
                 end
         end,
     case lists:member(async_fold, Opts) of
@@ -244,16 +269,16 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
     KeyFolder =
         fun() ->
-                {ok, SRef} = wterl:session_open(ConnRef),
-                {ok, Cursor} = wterl:cursor_open(SRef, Table),
+                {ok, SRef} = wt:session_open(ConnRef),
+                {ok, Cursor} = wt:cursor_open(SRef, Table),
                 try
-                    wterl:fold_keys(Cursor, FoldFun, Acc)
+                    wt:fold_keys(Cursor, FoldFun, Acc)
                 catch
                     {break, AccFinal} ->
                         AccFinal
                 after
-                    ok = wterl:cursor_close(Cursor),
-                    ok = wterl:session_close(SRef)
+                    ok = wt:cursor_close(Cursor),
+                    ok = wt:session_close(SRef)
                 end
         end,
     case lists:member(async_fold, Opts) of
@@ -273,16 +298,16 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                {ok, SRef} = wterl:session_open(ConnRef),
-                {ok, Cursor} = wterl:cursor_open(SRef, Table),
+                {ok, SRef} = wt:session_open(ConnRef),
+                {ok, Cursor} = wt:cursor_open(SRef, Table),
                 try
-                    wterl:fold(Cursor, FoldFun, Acc)
+                    wt:fold(Cursor, FoldFun, Acc)
                 catch
                     {break, AccFinal} ->
                         AccFinal
                 after
-                    ok = wterl:cursor_close(Cursor),
-                    ok = wterl:session_close(SRef)
+                    ok = wt:cursor_close(Cursor),
+                    ok = wt:session_close(SRef)
                 end
         end,
     case lists:member(async_fold, Opts) of
@@ -292,36 +317,36 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{conn=ConnRef, table=Table}) ->
             {ok, ObjectFolder()}
     end.
 
-%% @doc Delete all objects from this wterl backend
+%% @doc Delete all objects from this WiredTiger backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
 drop(#state{table=Table, session=SRef}=State) ->
-    case wterl:session_truncate(SRef, Table) of
+    case wt:session_truncate(SRef, Table) of
         ok ->
             {ok, State};
         Error ->
             {error, Error, State}
     end.
 
-%% @doc Returns true if this wterl backend contains any
+%% @doc Returns true if this WiredTiger backend contains any
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
 is_empty(#state{table=Table, session=SRef}) ->
-    {ok, Cursor} = wterl:cursor_open(SRef, Table),
+    {ok, Cursor} = wt:cursor_open(SRef, Table),
     try
-        not_found =:= wterl:cursor_next(Cursor)
+        not_found =:= wt:cursor_next(Cursor)
     after
-        ok = wterl:cursor_close(Cursor)
+        ok = wt:cursor_close(Cursor)
     end.
 
-%% @doc Get the status information for this wterl backend
+%% @doc Get the status information for this WiredTiger backend
 -spec status(state()) -> [{atom(), term()}].
 status(#state{table=Table, session=SRef}) ->
-    {ok, Cursor} = wterl:cursor_open(SRef, "statistics:"++Table),
+    {ok, Cursor} = wt:cursor_open(SRef, "statistics:"++Table),
     try
         Stats = fetch_status(Cursor),
         [{stats, Stats}]
     after
-        ok = wterl:cursor_close(Cursor)
+        ok = wt:cursor_close(Cursor)
     end.
 
 %% @doc Register an asynchronous callback
@@ -440,14 +465,42 @@ from_index_key(LKey) ->
     end.
 
 %% @private
-%% Return all status from wterl statistics cursor
+%% Return all status from WiredTiger statistics cursor
 fetch_status(Cursor) ->
-    fetch_status(Cursor, wterl:cursor_next_value(Cursor), []).
+    fetch_status(Cursor, wt:cursor_next_value(Cursor), []).
 fetch_status(_Cursor, not_found, Acc) ->
     lists:reverse(Acc);
 fetch_status(Cursor, {ok, Stat}, Acc) ->
     [What,Val|_] = [binary_to_list(B) || B <- binary:split(Stat, [<<0>>], [global])],
-    fetch_status(Cursor, wterl:cursor_next_value(Cursor), [{What,Val}|Acc]).
+    fetch_status(Cursor, wt:cursor_next_value(Cursor), [{What,Val}|Acc]).
+
+best_guess_at_a_reasonable_cache_size(ChunkSizeInMB) ->
+    RunningApps = application:which_applications(),
+    case proplists:is_defined(sasl, RunningApps) andalso
+	 proplists:is_defined(os_mon, RunningApps) of
+	true ->
+	    MemInfo = memsup:get_system_memory_data(),
+	    AvailableRAM = proplists:get_value(system_total_memory, MemInfo),
+	    FreeRAM = proplists:get_value(free_memory, MemInfo),
+	    CurrentlyInUseByErlang = proplists:get_value(total, erlang:memory()),
+	    OneThirdOfRemainingRAM = ((AvailableRAM - CurrentlyInUseByErlang) div 3),
+	    Remainder = OneThirdOfRemainingRAM rem (ChunkSizeInMB * 1024 * 1024),
+	    EstCacheSize = (OneThirdOfRemainingRAM - Remainder),
+	    GuessedSize =
+		case EstCacheSize > FreeRAM of
+		    true ->
+			FreeRAM - (FreeRAM rem (ChunkSizeInMB * 1024 * 1024));
+		    _ ->
+			EstCacheSize
+		end,
+	    case GuessedSize < 809238528 of
+		true -> "1GB";
+		false -> integer_to_list(GuessedSize div (1024 * 1024)) ++ "MB"
+	    end;
+	false ->
+	    "1GB"
+    end.
+
 
 %% ===================================================================
 %% EUnit tests
@@ -455,13 +508,13 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/wterl-backend"),
-    application:set_env(wterl, data_root, "test/wterl-backend"),
+    ?assertCmd("rm -rf test/wiredtiger-backend"),
+    application:set_env(wt, data_root, "test/wiredtiger-backend"),
     temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/wterl-backend"),
-    application:set_env(wterl, data_root, ""),
-    temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).
+    ?assertCmd("rm -rf test/wiredtiger-backend"),
+    application:set_env(wt, data_root, ""),
+    temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wiredtiger-backend"}]).
 
 -endif.

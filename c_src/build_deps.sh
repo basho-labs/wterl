@@ -18,6 +18,7 @@ case "$1" in
 
         tar -xjf wiredtiger-$WT_VSN.tar.bz2
 
+#	                 --enable-snappy --enable-bzip2 --enable-lz4 \
         (cd wiredtiger-$WT_VSN/build_posix && \
             ../configure --with-pic \
                          --prefix=$BASEDIR/system && \

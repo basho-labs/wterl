@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% wterl_ets: ets table owner for wterl_conn
+%% wt_conn_deputy: ets table owner for wt_conn
 %%
 %% Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
 %%
@@ -19,17 +19,17 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(wterl_ets).
+-module(wt_conn_deputy).
 -author('Steve Vinoski <steve@basho.com>').
 
 -behaviour(gen_server).
 
 %% ====================================================================
 %% The sole purpose of this module is to own the ets table used by the
-%% wterl_conn module. Holding the ets table in an otherwise do-nothing
+%% wt_conn module. Holding the ets table in an otherwise do-nothing
 %% server avoids losing the table and its contents should an unexpected
-%% error occur in wterl_conn if it were the owner instead. This module
-%% is unit-tested as part of the wterl_conn module.
+%% error occur in wt_conn if it were the owner instead. This module
+%% is unit-tested as part of the wt_conn module.
 %% ====================================================================
 
 %% API

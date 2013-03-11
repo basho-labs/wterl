@@ -1,0 +1,12 @@
+{application, wt,
+ [
+  {description, "Erlang NIF Wrapper for WiredTiger"},
+  {vsn, "1.0.0"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, {wt_app, []}},
+  {env, []}
+]}.
