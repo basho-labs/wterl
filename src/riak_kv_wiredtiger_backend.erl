@@ -100,6 +100,11 @@ start(Partition, Config) ->
 	    case AppStarted of
 		ok ->
 		    CacheSize = size_cache(64, Config),
+		    SessionMax =
+			case app_helper:get_env(riak_core, ring_creation_size) of
+			    undefined -> 1024;
+			    RingSize -> RingSize
+			end,
 		    WTConfig =
 			case proplists:lookup(wt, Config) of
 			    none ->
@@ -117,7 +122,7 @@ start(Partition, Config) ->
 			[{create, true},
 			 {logging, true},
 			 {transactional, true},
-			 {session_max, 128},
+			 {session_max, SessionMax},
 			 {shared_cache, [{chunk, "64MB"},
 					 {min, "1GB"},
 					 {name, "wt-cache"},
