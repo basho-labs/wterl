@@ -2,7 +2,7 @@
 %%
 %% riak_kv_wterl_backend: WiredTiger Driver for Riak
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -99,11 +99,17 @@ start(Partition, Config) ->
             case AppStart of
                 ok ->
                     ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
+                    SessionMax =
+                        case app_helper:get_env(riak_core, ring_creation_size) of
+                            undefined -> 1024;
+                            RingSize when RingSize < 512 -> 1024;
+                            RingSize -> RingSize * 2
+                        end,
                     ConnectionOpts = [Config,
 				      {create, true},
 				      {logging, true},
 				      {transactional, true},
-				      {session_max, 128},
+				      {session_max, SessionMax},
 				      {cache_size, "2GB"},
 				      {sync, false}
 				      %% {verbose,
