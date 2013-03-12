@@ -103,7 +103,11 @@ start(Partition, Config) ->
 		    SessionMax =
 			case app_helper:get_env(riak_core, ring_creation_size) of
 			    undefined -> 1024;
-			    RingSize -> RingSize
+			    RingSize ->
+				case RingSize < 512 of
+				    true -> 1024;
+				    false -> RingSize * 2
+				end
 			end,
 		    WTConfig =
 			case proplists:lookup(wt, Config) of
