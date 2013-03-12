@@ -26,6 +26,7 @@ case "$1" in
 	fi
 	(cd wiredtiger/build_posix && \
             ../configure --with-pic \
+                         --enable-snappy --enable-bzip2 --enable-lz4 \
                          --prefix=$BASEDIR/system && \
             make && make install)
         ;;
