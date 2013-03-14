@@ -272,6 +272,7 @@ fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
 config_types() ->
     [{block_compressor, string},
      {cache_size, string},
+     {checkpoint, map},
      {create, bool},
      {direct_io, map},
      {drop, list},
@@ -293,10 +294,12 @@ config_types() ->
      {multiprocess, bool},
      {name, string},
      {session_max, integer},
+     {statistics_log, map},
      {sync, bool},
      {target, list},
      {transactional, bool},
-     {verbose, map}].
+     {verbose, map},
+     {wait, integer}].
 
 config_value(Key, Config, Default) ->
     {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.

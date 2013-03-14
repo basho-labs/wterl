@@ -55,7 +55,7 @@
 -record(state, {conn :: wterl:connection(),
                 table :: string(),
                 session :: wterl:session(),
-		cursors :: ets:tid(),
+                cursors :: ets:tid(),
                 partition :: integer()}).
 
 -type state() :: #state{}.
@@ -109,18 +109,20 @@ start(Partition, Config) ->
                             RingSize -> RingSize * 2
                         end,
                     ConnectionOpts = [Config,
-				      {create, true},
-				      {logging, true},
-				      {transactional, true},
-				      {session_max, SessionMax},
-				      {cache_size, size_cache(Config)},
-				      {sync, false}
-				      %% {verbose,
-				      %%  ["block", "shared_cache", "ckpt", "evict",
-				      %% 	"evictserver", "fileops", "hazard", "lsm",
-				      %% 	"mutex", "read", "readserver", "reconcile",
-				      %% 	"salvage", "verify", "write"]}
-				     ],
+                                      {create, true},
+                                      {sync, false},
+                                      {logging, true},
+                                      {transactional, true},
+                                      {session_max, SessionMax},
+                                      {cache_size, size_cache(Config)},
+                                      {checkpoint, [{wait, 1}]}, % sec
+                                      {statistics_log, [{wait, 30}]} % sec
+                                      %% {verbose,
+                                      %%   ["block", "shared_cache", "ckpt", "evict",
+                                      %%         "evictserver", "fileops", "hazard", "lsm",
+                                      %%         "mutex", "read", "readserver", "reconcile",
+                                      %%         "salvage", "verify", "write"]}
+                                     ],
                     case wterl_conn:open(DataRoot, ConnectionOpts) of
                         {ok, ConnRef} ->
                             Table = "lsm:wt" ++ integer_to_list(Partition),
@@ -152,7 +154,7 @@ stop(#state{conn=ConnRef, session=SRef, cursors=undefined}) ->
     wterl_conn:close(ConnRef);
 stop(#state{cursors=Cursors}=State) ->
     ets:foldl(fun({_Table, Cursor}, _) ->
-		      ok = wterl:cursor_close(Cursor)
+                      ok = wterl:cursor_close(Cursor)
               end, true, Cursors),
     ets:delete(Cursors),
     stop(State#state{cursors=undefined}).
@@ -353,14 +355,14 @@ shared_cursor(SRef, Table, #state{cursors=undefined}=State) ->
     shared_cursor(SRef, Table, State#state{cursors=Cursors});
 shared_cursor(SRef, Table, #state{cursors=Cursors}=State) ->
     case ets:lookup(Cursors, Table) of
-	[{Table, Cursor}] ->
-	    {Cursor, State};
-	_ ->
-	    Cursor = wterl:cursor_open(SRef, Table),
-	    ets:insert(Cursors, {Table, Cursor}),
-	    {Cursor, State}
+        [{Table, Cursor}] ->
+            {Cursor, State};
+        _ ->
+            Cursor = wterl:cursor_open(SRef, Table),
+            ets:insert(Cursors, {Table, Cursor}),
+            {Cursor, State}
     end.
-    
+
 
 %% @private
 %% Return a function to fold over the buckets on this backend
@@ -479,40 +481,40 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
 
 size_cache(Config) ->
     Size =
-	case app_helper:get_prop_or_env(cache_size, Config, wterl) of
-	    {ok, Value} ->
-		Value;
-	    undefined ->
-		RunningApps = application:which_applications(),
-		FinalGuess =
-		    case proplists:is_defined(sasl, RunningApps) andalso
-			proplists:is_defined(os_mon, RunningApps) of
-			true ->
-			    Memory = memsup:get_system_memory_data(),
-			    TotalRAM = proplists:get_value(system_total_memory, Memory),
-			    FreeRAM = proplists:get_value(free_memory, Memory),
-			    UsedByBeam = proplists:get_value(total, erlang:memory()),
-			    Target = ((TotalRAM - UsedByBeam) div 3),
-			    FirstGuess = (Target - (Target rem (1024 * 1024))),
-			    SecondGuess =
-				case FirstGuess > FreeRAM of
-				    true -> FreeRAM - (FreeRAM rem (1024 * 1024));
-				    _ -> FirstGuess
-				end,
-			    case SecondGuess < 1073741824 of %% < 1GB?
-				true -> "1GB";
-				false ->
-				    ThirdGuess = SecondGuess div (1024 * 1024),
-				    integer_to_list(ThirdGuess) ++ "MB"
-			    end;
-			false ->
-			    "1GB"
-		    end,
-		application:set_env(wt, cache_size, FinalGuess),
-		lager:warning("Using best-guess cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
-		FinalGuess
-	end,
-    Size.    
+        case app_helper:get_prop_or_env(cache_size, Config, wterl) of
+            {ok, Value} ->
+                Value;
+            undefined ->
+                RunningApps = application:which_applications(),
+                FinalGuess =
+                    case proplists:is_defined(sasl, RunningApps) andalso
+                        proplists:is_defined(os_mon, RunningApps) of
+                        true ->
+                            Memory = memsup:get_system_memory_data(),
+                            TotalRAM = proplists:get_value(system_total_memory, Memory),
+                            FreeRAM = proplists:get_value(free_memory, Memory),
+                            UsedByBeam = proplists:get_value(total, erlang:memory()),
+                            Target = ((TotalRAM - UsedByBeam) div 3),
+                            FirstGuess = (Target - (Target rem (1024 * 1024))),
+                            SecondGuess =
+                                case FirstGuess > FreeRAM of
+                                    true -> FreeRAM - (FreeRAM rem (1024 * 1024));
+                                    _ -> FirstGuess
+                                end,
+                            case SecondGuess < 1073741824 of %% < 1GB?
+                                true -> "1GB";
+                                false ->
+                                    ThirdGuess = SecondGuess div (1024 * 1024),
+                                    integer_to_list(ThirdGuess) ++ "MB"
+                            end;
+                        false ->
+                            "1GB"
+                    end,
+                application:set_env(wt, cache_size, FinalGuess),
+                lager:warning("Using best-guess cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
+                FinalGuess
+        end,
+    Size.
 
 %% ===================================================================
 %% EUnit tests
