@@ -272,7 +272,9 @@ empty_check({Backend, State}) ->
     }.
 
 setup({BackendMod, Config}) ->
-    %% Start the backend
+    lager:start(),
+    application:start(sasl),
+    application:start(os_mon),
     {ok, S} = BackendMod:start(42, Config),
     {BackendMod, S}.
 
