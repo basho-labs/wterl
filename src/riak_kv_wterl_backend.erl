@@ -24,6 +24,8 @@
 -behavior(temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
 
+-compile([{parse_transform, lager_transform}]).
+
 %% KV Backend API
 -export([api_version/0,
          capabilities/1,
@@ -111,7 +113,7 @@ start(Partition, Config) ->
 				      {logging, true},
 				      {transactional, true},
 				      {session_max, SessionMax},
-				      {cache_size, "2GB"},
+				      {cache_size, size_cache(Config)},
 				      {sync, false}
 				      %% {verbose,
 				      %%  ["block", "shared_cache", "ckpt", "evict",
@@ -135,8 +137,7 @@ start(Partition, Config) ->
                                         session=SRef,
                                         partition=Partition}};
                         {error, ConnReason}=ConnError ->
-                            lager:error("Failed to start wterl backend: ~p\n",
-                                        [ConnReason]),
+                            lager:error("Failed to start wterl backend: ~p\n", [ConnReason]),
                             ConnError
                     end;
                 Error ->
@@ -475,6 +476,43 @@ fetch_status(_Cursor, not_found, Acc) ->
 fetch_status(Cursor, {ok, Stat}, Acc) ->
     [What,Val|_] = [binary_to_list(B) || B <- binary:split(Stat, [<<0>>], [global])],
     fetch_status(Cursor, wterl:cursor_next_value(Cursor), [{What,Val}|Acc]).
+
+size_cache(Config) ->
+    Size =
+	case app_helper:get_prop_or_env(cache_size, Config, wterl) of
+	    {ok, Value} ->
+		Value;
+	    undefined ->
+		RunningApps = application:which_applications(),
+		FinalGuess =
+		    case proplists:is_defined(sasl, RunningApps) andalso
+			proplists:is_defined(os_mon, RunningApps) of
+			true ->
+			    Memory = memsup:get_system_memory_data(),
+			    TotalRAM = proplists:get_value(system_total_memory, Memory),
+			    FreeRAM = proplists:get_value(free_memory, Memory),
+			    UsedByBeam = proplists:get_value(total, erlang:memory()),
+			    Target = ((TotalRAM - UsedByBeam) div 3),
+			    FirstGuess = (Target - (Target rem (1024 * 1024))),
+			    SecondGuess =
+				case FirstGuess > FreeRAM of
+				    true -> FreeRAM - (FreeRAM rem (1024 * 1024));
+				    _ -> FirstGuess
+				end,
+			    case SecondGuess < 1073741824 of %% < 1GB?
+				true -> "1GB";
+				false ->
+				    ThirdGuess = SecondGuess div (1024 * 1024),
+				    integer_to_list(ThirdGuess) ++ "MB"
+			    end;
+			false ->
+			    "1GB"
+		    end,
+		application:set_env(wt, cache_size, FinalGuess),
+		lager:warning("Using best-guess cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
+		FinalGuess
+	end,
+    Size.    
 
 %% ===================================================================
 %% EUnit tests
