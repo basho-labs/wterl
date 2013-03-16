@@ -16,18 +16,17 @@ case "$1" in
     *)
         test -f system/lib/libwiredtiger.a && exit 0
 
-	if [ -d wiredtiger/.git ]; then
-	    (cd wiredtiger && \
-		git fetch && \
-		git merge origin/$WT_BRANCH)
-	else
-	    git clone https://github.com/wiredtiger/wiredtiger.git -b $WT_BRANCH && \
-		(cd wiredtiger && ./autogen.sh)
-	fi
-	(cd wiredtiger/build_posix && \
+        if [ -d wiredtiger/.git ]; then
+            (cd wiredtiger && \
+                git fetch && \
+                git merge origin/$WT_BRANCH)
+        else
+            git clone http://github.com/wiredtiger/wiredtiger.git -b $WT_BRANCH && \
+                (cd wiredtiger && ./autogen.sh)
+        fi
+        (cd wiredtiger/build_posix && \
             ../configure --with-pic \
                          --prefix=$BASEDIR/system && \
-            make && make install)
+            make -j 8 && make install)
         ;;
 esac
-
