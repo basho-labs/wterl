@@ -81,10 +81,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
-    Opts = [{create, true},
-            config_value(cache_size, Config, "100MB"),
-            config_value(session_max, Config, 100)],
-    {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Opts)) of
+    {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Config)) of
                           {ok, ConnRef}=OK ->
                               Monitor = erlang:monitor(process, Caller),
                               true = ets:insert(wterl_ets, {Monitor, Caller}),
@@ -168,10 +165,6 @@ do_close(undefined) ->
 do_close(ConnRef) ->
     wterl:conn_close(ConnRef).
 
-%% @private
-config_value(Key, Config, Default) ->
-    {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
-
 
 -ifdef(TEST).
 
@@ -213,14 +206,14 @@ simple_test_() ->
        end}]}.
 
 open_one() ->
-    {ok, Ref} = open("test/wterl-backend", [{session_max, 20},{cache_size, "1MB"}]),
+    {ok, Ref} = open("test/wterl-backend", [{create, true}, {session_max, 20},{cache_size, "1MB"}]),
     true = is_open(),
     close(Ref),
     false = is_open(),
     ok.
 
 open_and_wait(Pid) ->
-    {ok, Ref} = open("test/wterl-backend"),
+    {ok, Ref} = open("test/wterl-backend", [{create, true}]),
     Pid ! open,
     receive
         close ->

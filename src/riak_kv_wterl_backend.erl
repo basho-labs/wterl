@@ -80,7 +80,6 @@ capabilities(_, _) ->
 %% @doc Start the wterl backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
 start(Partition, Config) ->
-    Table = "lsm:wt" ++ integer_to_list(Partition),
     AppStart =
         case application:start(wterl) of
             ok ->
@@ -93,6 +92,7 @@ start(Partition, Config) ->
         end,
     case AppStart of
         ok ->
+            Table = "lsm:wt" ++ integer_to_list(Partition),
             establish_connection(Table, Config);
         {error, Reason2} ->
             {error, Reason2}
@@ -324,6 +324,7 @@ callback(_Ref, _Msg, State) ->
 %% Internal functions
 %% ===================================================================
 
+%% @private
 establish_connection(Table, Config) ->
     %% Get the data root directory
     case app_helper:get_prop_or_env(data_root, Config, wterl) of
@@ -338,17 +339,18 @@ establish_connection(Table, Config) ->
                     RingSize when RingSize < 512 -> 1024;
                     RingSize -> RingSize * 2
                 end,
-            case wterl_conn:open(DataRoot,
-                                 [Config,
-                                  {create, true},
-                                  {sync, false},
-                                  {logging, true},
-                                  {transactional, true},
-                                  {session_max, SessionMax},
-                                  {cache_size, size_cache(Config)},
-                                  {checkpoint, [{wait, 1}]}, % sec
-                                  {statistics_log, [{wait, 30}]} % sec
-                                 ]) of
+            Opts = orddict:from_list(
+                     [ wterl:config_value(create, Config, true),
+                       wterl:config_value(sync, Config, false),
+                       wterl:config_value(logging, Config, true),
+                       wterl:config_value(transactional, Config, true),
+                       wterl:config_value(session_max, Config, SessionMax),
+                       wterl:config_value(cache_size, Config, size_cache(Config)),
+                       wterl:config_value(checkpoint, Config, [{wait, 1}]), % sec
+                       wterl:config_value(statistics_log, Config, [{wait, 30}])]
+                     ++ proplists:get_value(wterl, Config, [])), % sec
+            %% lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
+            case wterl_conn:open(DataRoot, Opts) of
                 {ok, Connection} ->
                     {ok, #state{table=Table, connection=Connection}};
                 {error, Reason2} ->
@@ -357,6 +359,7 @@ establish_connection(Table, Config) ->
             end
     end.
 
+%% @private
 establish_session(#state{table=Table, session=undefined}=State) ->
     {ok, Connection} = wterl_conn:get(),
     case wterl:session_open(Connection, wterl:config_to_bin([{isolation, "snapshot"}])) of

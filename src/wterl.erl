@@ -272,9 +272,9 @@ fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
 config_types() ->
     [{block_compressor, string},
      {cache_size, string},
-     {checkpoint, map},
+     {checkpoint, config},
      {create, bool},
-     {direct_io, map},
+     {direct_io, list},
      {drop, list},
      {error_prefix, string},
      {eviction_target, integer},
@@ -294,11 +294,11 @@ config_types() ->
      {multiprocess, bool},
      {name, string},
      {session_max, integer},
-     {statistics_log, map},
+     {statistics_log, config},
      {sync, bool},
      {target, list},
      {transactional, bool},
-     {verbose, map},
+     {verbose, list},
      {wait, integer}].
 
 config_value(Key, Config, Default) ->
@@ -315,8 +315,6 @@ config_encode(config, Value) ->
     list_to_binary(["(", config_to_bin(Value, []), ")"]);
 config_encode(list, Value) ->
     list_to_binary(["(", string:join(Value, ","), ")"]);
-config_encode(map, Value) ->
-    list_to_binary(["[", string:join(Value, ","), "]"]);
 config_encode(string, Value) ->
     list_to_binary(Value);
 config_encode(bool, true) ->
