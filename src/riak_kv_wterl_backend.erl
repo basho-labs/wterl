@@ -347,8 +347,10 @@ establish_connection(Table, Config) ->
                        wterl:config_value(session_max, Config, SessionMax),
                        wterl:config_value(cache_size, Config, size_cache(Config)),
                        wterl:config_value(checkpoint, Config, [{wait, 1}]), % sec
-                       wterl:config_value(statistics_log, Config, [{wait, 30}])]
-                     ++ proplists:get_value(wterl, Config, [])), % sec
+                       wterl:config_value(statistics_log, Config, [{wait, 30}]),
+		       wterl:config_value(lsm_bloom_newest, Config, true),
+		       wterl:config_value(lsm_bloom_oldest, Config, true)
+		     ] ++ proplists:get_value(wterl, Config, [])), % sec
             %% lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
             case wterl_conn:open(DataRoot, Opts) of
                 {ok, Connection} ->
