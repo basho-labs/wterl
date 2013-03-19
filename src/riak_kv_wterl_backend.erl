@@ -339,7 +339,7 @@ establish_connection(Table, Config) ->
                     RingSize when RingSize < 512 -> 1024;
                     RingSize -> RingSize * 2
                 end,
-            Opts = orddict:from_list([
+            Opts = orddict:from_list(
                      [ wterl:config_value(create, Config, true),
                        wterl:config_value(sync, Config, false),
                        wterl:config_value(logging, Config, true),
@@ -348,7 +348,7 @@ establish_connection(Table, Config) ->
                        wterl:config_value(cache_size, Config, size_cache(Config)),
                        wterl:config_value(checkpoint, Config, [{wait, 1}]), % sec
                        wterl:config_value(statistics_log, Config, [{wait, 30}])]
-                     | proplists:get_value(wterl, Config, [])]), % sec
+                     ++ proplists:get_value(wterl, Config, [])), % sec
             %% lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
             case wterl_conn:open(DataRoot, Opts) of
                 {ok, Connection} ->
