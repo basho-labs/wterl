@@ -101,7 +101,7 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_prev", 1, wterl_cursor_prev},
     {"cursor_prev_key", 1, wterl_cursor_prev_key},
     {"cursor_prev_value", 1, wterl_cursor_prev_value},
-    {"cursor_remove", 3, wterl_cursor_remove},
+    {"cursor_remove", 2, wterl_cursor_remove},
     {"cursor_reset", 1, wterl_cursor_reset},
     {"cursor_search", 2, wterl_cursor_search},
     {"cursor_search_near", 2, wterl_cursor_search_near},
@@ -614,16 +614,21 @@ static inline ERL_NIF_TERM wterl_cursor_data_op(ErlNifEnv* env, int argc, const 
     {
         ErlNifBinary key, value;
 	int rc;
-        if (enif_inspect_binary(env, argv[1], &key) && enif_inspect_binary(env, argv[2], &value))
+
+        if (enif_inspect_binary(env, argv[1], &key) &&
+	    (op == WTERL_OP_CURSOR_REMOVE ? 1 : enif_inspect_binary(env, argv[2], &value)))
         {
             WT_CURSOR* cursor = cursor_handle->cursor;
 	    WT_ITEM raw_key, raw_value;
 	    raw_key.data = key.data;
 	    raw_key.size = key.size;
 	    cursor->set_key(cursor, &raw_key);
-	    raw_value.data = value.data;
-	    raw_value.size = value.size;
-	    cursor->set_value(cursor, &raw_value);
+	    if (op != WTERL_OP_CURSOR_REMOVE)
+	    {
+		raw_value.data = value.data;
+		raw_value.size = value.size;
+		cursor->set_value(cursor, &raw_value);
+	    }
 	    switch (op)
             {
 	    case WTERL_OP_CURSOR_INSERT:

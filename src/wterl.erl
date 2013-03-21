@@ -31,7 +31,7 @@
          cursor_prev/1,
          cursor_prev_key/1,
          cursor_prev_value/1,
-         cursor_remove/3,
+         cursor_remove/2,
          cursor_reset/1,
          cursor_search/2,
          cursor_search_near/2,
@@ -242,8 +242,8 @@ cursor_insert(_Cursor, _Key, _Value) ->
 cursor_update(_Cursor, _Key, _Value) ->
     ?nif_stub.
 
--spec cursor_remove(cursor(), key(), value()) -> ok | {error, term()}.
-cursor_remove(_Cursor, _Key, _Value) ->
+-spec cursor_remove(cursor(), key()) -> ok | {error, term()}.
+cursor_remove(_Cursor, _Key) ->
     ?nif_stub.
 
 -type fold_keys_fun() :: fun((Key::binary(), any()) -> any()).
@@ -586,13 +586,10 @@ various_cursor_test_() ->
                {"remove an item using a cursor",
                 fun() ->
                         {ok, Cursor} = cursor_open(SRef, "table:test"),
-                        ?assertMatch(ok,
-                                     cursor_remove(Cursor, <<"g">>, <<"goji berries">>)),
-                        ?assertMatch(not_found,
-                                     cursor_remove(Cursor, <<"l">>, <<"lemon">>)),
+                        ?assertMatch(ok, cursor_remove(Cursor, <<"g">>)),
+                        ?assertMatch(not_found, cursor_remove(Cursor, <<"l">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
-                        ?assertMatch(not_found,
-                                     session_get(SRef, "table:test", <<"g">>))
+                        ?assertMatch(not_found, session_get(SRef, "table:test", <<"g">>))
                 end}]}
      end}.
 
