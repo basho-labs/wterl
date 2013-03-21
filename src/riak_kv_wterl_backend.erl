@@ -362,22 +362,27 @@ establish_connection(Table, Config) ->
                     RingSize when RingSize < 512 -> 1024;
                     RingSize -> RingSize * 2
                 end,
+	    RequestedCacheSize = app_helper:get_prop_or_env(cache_size, Config, wterl),
             Opts = orddict:from_list(
                      [ wterl:config_value(create, Config, true),
                        wterl:config_value(sync, Config, false),
                        wterl:config_value(logging, Config, true),
                        wterl:config_value(transactional, Config, true),
                        wterl:config_value(session_max, Config, SessionMax),
-                       wterl:config_value(cache_size, Config, size_cache(Config)),
-                       wterl:config_value(checkpoint, Config, [{wait, 1}]), % sec
-                       wterl:config_value(statistics_log, Config, [{wait, 30}])
+		       wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
+                       wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
+		       wterl:config_value(verbose, Config, [ "ckpt"
+			 %"block", "shared_cache", "evictserver", "fileops",
+			 %"hazard", "mutex", "read", "readserver", "reconcile",
+			 %"salvage", "verify", "write", "evict", "lsm"
+			])
 		     ] ++ proplists:get_value(wterl, Config, [])), % sec
             %%lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
             case wterl_conn:open(DataRoot, Opts) of
                 {ok, Connection} ->
                     {ok, #state{table=Table, connection=Connection}};
                 {error, Reason2} ->
-                    %lager:error("Failed to establish a WiredTiger connection, wterl backend unable to start: ~p\n", [Reason2]),
+		    lager:error("Failed to establish a WiredTiger connection, wterl backend unable to start: ~p\n", [Reason2]),
                     {error, Reason2}
             end
     end.
@@ -392,9 +397,9 @@ establish_session(#state{table=Table, session=undefined}=State) ->
                  {internal_page_max, "128K"},
                  {leaf_page_max, "128K"},
                  {lsm_chunk_size, "200MB"},
-                 {lsm_bloom_config, [{leaf_page_max, "10MB"},
-				     {lsm_bloom_newest, true},
-				     {lsm_bloom_newest, true}]} ],
+		 {lsm_bloom_newest, true},
+		 {lsm_bloom_oldest, true} ,
+                 {lsm_bloom_config, [{leaf_page_max, "10MB"}]} ],
             case wterl:session_create(Session, Table, wterl:config_to_bin(SessionOpts)) of
                 ok ->
                     State#state{session=Session};
@@ -524,9 +529,9 @@ fetch_status(Cursor, {ok, Stat}, Acc) ->
     [What,Val|_] = [binary_to_list(B) || B <- binary:split(Stat, [<<0>>], [global])],
     fetch_status(Cursor, wterl:cursor_next_value(Cursor), [{What,Val}|Acc]).
 
-size_cache(Config) ->
+size_cache(RequestedSize) ->
     Size =
-        case app_helper:get_prop_or_env(cache_size, Config, wterl) of
+        case RequestedSize of
             undefined ->
                 RunningApps = application:which_applications(),
                 FinalGuess =
@@ -537,7 +542,7 @@ size_cache(Config) ->
                             TotalRAM = proplists:get_value(system_total_memory, Memory),
                             FreeRAM = proplists:get_value(free_memory, Memory),
                             UsedByBeam = proplists:get_value(total, erlang:memory()),
-                            Target = ((TotalRAM - UsedByBeam) div 3),
+                            Target = ((TotalRAM - UsedByBeam) div 4),
                             FirstGuess = (Target - (Target rem (1024 * 1024))),
                             SecondGuess =
                                 case FirstGuess > FreeRAM of
@@ -554,7 +559,7 @@ size_cache(Config) ->
                             "1GB"
                     end,
                 application:set_env(wterl, cache_size, FinalGuess),
-                %%lager:warning("Using cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
+                lager:info("Using cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
                 FinalGuess;
             Value ->
                 Value
