@@ -370,16 +370,14 @@ establish_connection(Table, Config) ->
                        wterl:config_value(session_max, Config, SessionMax),
                        wterl:config_value(cache_size, Config, size_cache(Config)),
                        wterl:config_value(checkpoint, Config, [{wait, 1}]), % sec
-                       wterl:config_value(statistics_log, Config, [{wait, 30}]),
-		       wterl:config_value(lsm_bloom_newest, Config, true),
-		       wterl:config_value(lsm_bloom_oldest, Config, true)
+                       wterl:config_value(statistics_log, Config, [{wait, 30}])
 		     ] ++ proplists:get_value(wterl, Config, [])), % sec
-            %% lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
+            %%lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
             case wterl_conn:open(DataRoot, Opts) of
                 {ok, Connection} ->
                     {ok, #state{table=Table, connection=Connection}};
                 {error, Reason2} ->
-                    lager:error("Failed to establish a WiredTiger connection, wterl backend unable to start: ~p\n", [Reason2]),
+                    %lager:error("Failed to establish a WiredTiger connection, wterl backend unable to start: ~p\n", [Reason2]),
                     {error, Reason2}
             end
     end.
@@ -392,9 +390,11 @@ establish_session(#state{table=Table, session=undefined}=State) ->
             SessionOpts =
                 [%TODO {block_compressor, "snappy"},
                  {internal_page_max, "128K"},
-                 {leaf_page_max, "256K"},
-                 {lsm_chunk_size, "256MB"},
-                 {lsm_bloom_config, [{leaf_page_max, "16MB"}]} ],
+                 {leaf_page_max, "128K"},
+                 {lsm_chunk_size, "200MB"},
+                 {lsm_bloom_config, [{leaf_page_max, "10MB"},
+				     {lsm_bloom_newest, true},
+				     {lsm_bloom_newest, true}]} ],
             case wterl:session_create(Session, Table, wterl:config_to_bin(SessionOpts)) of
                 ok ->
                     State#state{session=Session};
