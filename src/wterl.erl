@@ -339,8 +339,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
         {value, {Key, Type}} ->
             Acc2 = case config_encode(Type, Value) of
                        invalid ->
-                           error_logger:error_msg("Skipping invalid option ~p = ~p\n",
-                                                  [Key, Value]),
+                           error_logger:error_msg("Skipping invalid option ~p = ~p\n", [Key, Value]),
                            Acc;
                        EncodedValue ->
                            EncodedKey = atom_to_binary(Key, utf8),
