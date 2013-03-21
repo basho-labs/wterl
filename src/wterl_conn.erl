@@ -81,14 +81,15 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
-    {Reply, NState} = case wterl:conn_open(Dir, wterl:config_to_bin(Config)) of
-                          {ok, ConnRef}=OK ->
-                              Monitor = erlang:monitor(process, Caller),
-                              true = ets:insert(wterl_ets, {Monitor, Caller}),
-                              {OK, State#state{conn = ConnRef}};
-                          Error ->
-                              {Error, State}
-                      end,
+    {Reply, NState} =
+	case wterl:conn_open(Dir, wterl:config_to_bin(Config)) of
+	    {ok, ConnRef}=OK ->
+		Monitor = erlang:monitor(process, Caller),
+		true = ets:insert(wterl_ets, {Monitor, Caller}),
+		{OK, State#state{conn = ConnRef}};
+	    Error ->
+		{Error, State}
+	end,
     {reply, Reply, NState};
 handle_call({open, _Dir, _Config, Caller}, _From,#state{conn=ConnRef}=State) ->
     Monitor = erlang:monitor(process, Caller),
