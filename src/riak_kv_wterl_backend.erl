@@ -554,7 +554,7 @@ size_cache(Config) ->
                             "1GB"
                     end,
                 application:set_env(wterl, cache_size, FinalGuess),
-                lager:warning("Using cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
+                %%lager:warning("Using cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
                 FinalGuess;
             Value ->
                 Value
