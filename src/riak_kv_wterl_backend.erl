@@ -175,12 +175,12 @@ delete(Bucket, Key, _IndexSpecs, #state{session=Session, table=Table}=State0) ->
                    any(),
                    [],
                    state()) -> {ok, any()} | {async, fun()}.
-fold_buckets(FoldBucketsFun, Acc, Opts, #state{table=Table}) ->
-    {ok, Connection} = wterl_conn:get(),
+fold_buckets(FoldBucketsFun, Acc, Opts, #state{session=undefined}=State) ->
+    fold_buckets(FoldBucketsFun, Acc, Opts, establish_session(State));
+fold_buckets(FoldBucketsFun, Acc, Opts, #state{session=Session, table=Table}) ->
     FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
-                {ok, Session} = wterl:session_open(Connection),
                 case wterl:cursor_open(Session, Table) of
                     {error, "No such file or directory"} ->
                         Acc;
@@ -193,8 +193,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{table=Table}) ->
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor),
-                            ok = wterl:session_close(Session)
+                            ok = wterl:cursor_close(Cursor)
                         end
                 end
         end,
@@ -210,9 +209,9 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{table=Table}) ->
                 any(),
                 [{atom(), term()}],
                 state()) -> {ok, term()} | {async, fun()}.
-fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
-    {ok, Connection} = wterl_conn:get(),
-
+fold_keys(FoldKeysFun, Acc, Opts, #state{session=undefined}=State) ->
+    fold_keys(FoldKeysFun, Acc, Opts, establish_session(State));
+fold_keys(FoldKeysFun, Acc, Opts, #state{session=Session, table=Table}) ->
     %% Figure out how we should limit the fold: by bucket, by
     %% secondary index, or neither (fold across everything.)
     Bucket = lists:keyfind(bucket, 1, Opts),
@@ -229,7 +228,6 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
     KeyFolder =
         fun() ->
-                {ok, Session} = wterl:session_open(Connection),
                 case wterl:cursor_open(Session, Table) of
                     {error, "No such file or directory"} ->
                         Acc;
@@ -240,8 +238,7 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor),
-                            ok = wterl:session_close(Session)
+                            ok = wterl:cursor_close(Cursor)
                         end
                 end
         end,
@@ -257,13 +254,13 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
                    any(),
                    [{atom(), term()}],
                    state()) -> {ok, any()} | {async, fun()}.
-fold_objects(FoldObjectsFun, Acc, Opts, #state{table=Table}) ->
-    {ok, Connection} = wterl_conn:get(),
+fold_objects(FoldObjectsFun, Acc, Opts, #state{session=undefined}=State) ->
+    fold_objects(FoldObjectsFun, Acc, Opts, establish_session(State));
+fold_objects(FoldObjectsFun, Acc, Opts, #state{session=Session, table=Table}) ->
     Bucket =  proplists:get_value(bucket, Opts),
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                {ok, Session} = wterl:session_open(Connection),
                 case wterl:cursor_open(Session, Table) of
                     {error, "No such file or directory"} ->
                         Acc;
@@ -274,8 +271,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{table=Table}) ->
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor),
-                            ok = wterl:session_close(Session)
+                            ok = wterl:cursor_close(Cursor)
                         end
                 end
         end,
@@ -371,10 +367,10 @@ establish_connection(Table, Config) ->
                        wterl:config_value(session_max, Config, SessionMax),
 		       wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                        wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
-		       wterl:config_value(verbose, Config, [ "ckpt"
-			 %"block", "shared_cache", "evictserver", "fileops",
-			 %"hazard", "mutex", "read", "readserver", "reconcile",
-			 %"salvage", "verify", "write", "evict", "lsm"
+		       wterl:config_value(verbose, Config, [ 
+			  %"ckpt" "block", "shared_cache", "evictserver", "fileops",
+			  %"hazard", "mutex", "read", "readserver", "reconcile",
+			  %"salvage", "verify", "write", "evict", "lsm"
 			])
 		     ] ++ proplists:get_value(wterl, Config, [])), % sec
             %%lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
