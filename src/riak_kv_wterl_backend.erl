@@ -561,8 +561,10 @@ size_cache(RequestedSize) ->
                 application:set_env(wterl, cache_size, FinalGuess),
                 lager:info("Using cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
                 FinalGuess;
-            Value ->
-                Value
+            Value when is_list(Value) ->
+                Value;
+            Value when is_number(Value) ->
+                integer_to_list(Value)
         end,
     Size.
 

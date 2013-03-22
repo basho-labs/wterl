@@ -320,11 +320,21 @@ config_encode(config, Value) ->
     list_to_binary(["(", config_to_bin(Value, []), ")"]);
 config_encode(list, Value) ->
     list_to_binary(["(", string:join(Value, ","), ")"]);
-config_encode(string, Value) ->
+config_encode(string, Value) when is_list(Value) ->
     list_to_binary(Value);
+config_encode(string, Value) when is_number(Value) ->
+    list_to_binary(integer_to_list(Value));
 config_encode(bool, true) ->
     <<"true">>;
+config_encode(bool, Value) when is_number(Value) andalso Value =/= 0 ->
+    <<"true">>;
+config_encode(bool, "true") ->
+    <<"true">>;
 config_encode(bool, false) ->
+    <<"false">>;
+config_encode(bool, 0) ->
+    <<"false">>;
+config_encode(bool, "false") ->
     <<"false">>;
 config_encode(_Type, _Value) ->
     invalid.
