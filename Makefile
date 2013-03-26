@@ -18,7 +18,7 @@ get-deps:
 update-deps:
 	@$(REBAR) update-deps
 
-c_src/wterl.o:
+c_src/wterl.o: c_src/async_nif.h
 	touch c_src/wterl.c
 
 ebin/app_helper.beam:
