@@ -20,8 +20,8 @@
 %%
 %% -------------------------------------------------------------------
 -module(wterl).
--export([conn_open/2,
-         conn_close/1,
+-export([connection_open/2,
+         connection_close/1,
          cursor_close/1,
          cursor_insert/3,
          cursor_next/1,
@@ -60,6 +60,7 @@
          session_verify/3,
          config_value/3,
          config_to_bin/1,
+	 priv_dir/0,
          fold_keys/3,
          fold/3]).
 
@@ -92,22 +93,23 @@ nif_stub_error(Line) ->
 
 -spec init() -> ok | {error, any()}.
 init() ->
-    PrivDir = case code:priv_dir(?MODULE) of
-                  {error, bad_name} ->
-                      EbinDir = filename:dirname(code:which(?MODULE)),
-                      AppPath = filename:dirname(EbinDir),
-                      filename:join(AppPath, "priv");
-                  Path ->
-                      Path
-              end,
-    erlang:load_nif(filename:join(PrivDir, atom_to_list(?MODULE)), 0).
+    erlang:load_nif(filename:join(priv_dir(), atom_to_list(?MODULE)), 0).
+
+-spec connection_open(string(), config()) -> {ok, connection()} | {error, term()}.
+connection_open(HomeDir, Config) ->
+    PrivDir = wterl:priv_dir(),
+    Bin = config_to_bin([{extensions,
+			  [filename:join(PrivDir, "libwiredtiger_snappy.so"),
+			   filename:join(PrivDir, "libwiredtiger_bzip2.so")]}],
+			[<<",">>, Config]),
+    conn_open(HomeDir, Bin).
 
 -spec conn_open(string(), config()) -> {ok, connection()} | {error, term()}.
 conn_open(_HomeDir, _Config) ->
     ?nif_stub.
 
--spec conn_close(connection()) -> ok | {error, term()}.
-conn_close(_ConnRef) ->
+-spec connection_close(connection()) -> ok | {error, term()}.
+connection_close(_ConnRef) ->
     ?nif_stub.
 
 -spec session_open(connection()) -> {ok, session()} | {error, term()}.
@@ -266,11 +268,21 @@ fold(_Cursor, _Fun, Acc, not_found) ->
 fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
     fold(Cursor, Fun, Fun({Key, Value}, Acc), cursor_next(Cursor)).
 
+priv_dir() ->
+    case code:priv_dir(?MODULE) of
+	{error, bad_name} ->
+	    EbinDir = filename:dirname(code:which(?MODULE)),
+	    AppPath = filename:dirname(EbinDir),
+	    filename:join(AppPath, "priv");
+	Path ->
+	    Path
+    end.
+
 %%
 %% Configuration type information.
 %%
 config_types() ->
-    [{block_compressor, string},
+    [{block_compressor, {string, quoted}},
      {cache_size, string},
      {checkpoint, config},
      {create, bool},
@@ -279,7 +291,7 @@ config_types() ->
      {error_prefix, string},
      {eviction_target, integer},
      {eviction_trigger, integer},
-     {extensions, string},
+     {extensions, {list, quoted}},
      {force, bool},
      {hazard_max, integer},
      {home_environment, bool},
@@ -320,8 +332,13 @@ config_encode(config, Value) ->
     list_to_binary(["(", config_to_bin(Value, []), ")"]);
 config_encode(list, Value) ->
     list_to_binary(["(", string:join(Value, ","), ")"]);
+config_encode({list, quoted}, Value) ->
+    Values = lists:map(fun(S) -> "\"" ++ S ++ "\"" end, Value),
+    list_to_binary(["(", string:join(Values, ","), ")"]);
 config_encode(string, Value) when is_list(Value) ->
     list_to_binary(Value);
+config_encode({string, quoted}, Value) when is_list(Value) ->
+    list_to_binary("\"" ++ Value ++ "\"");
 config_encode(string, Value) when is_number(Value) ->
     list_to_binary(integer_to_list(Value));
 config_encode(bool, true) ->
@@ -373,19 +390,19 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 open_test_conn(DataDir) ->
     ?assertCmd("rm -rf "++DataDir),
     ?assertMatch(ok, filelib:ensure_dir(filename:join(DataDir, "x"))),
-    OpenConfig = config_to_bin([{create,true},{cache_size,"100MB"}]),
-    {ok, ConnRef} = conn_open(DataDir, OpenConfig),
+    OpenConfig = config_to_bin([{create,true}, {cache_size,"100MB"}]),
+    {ok, ConnRef} = connection_open(DataDir, OpenConfig),
     ConnRef.
 
 open_test_session(ConnRef) ->
     {ok, SRef} = session_open(ConnRef),
     ?assertMatch(ok, session_drop(SRef, "table:test", config_to_bin([{force,true}]))),
-    ?assertMatch(ok, session_create(SRef, "table:test")),
+    ?assertMatch(ok, session_create(SRef, "table:test", config_to_bin([{block_compressor, "snappy"}]))),
     SRef.
 
 conn_test() ->
     ConnRef = open_test_conn(?TEST_DATA_DIR),
-    ?assertMatch(ok, conn_close(ConnRef)).
+    ?assertMatch(ok, connection_close(ConnRef)).
 
 session_test_() ->
     {setup,
@@ -393,7 +410,7 @@ session_test_() ->
              open_test_conn(?TEST_DATA_DIR)
      end,
      fun(ConnRef) ->
-             ok = conn_close(ConnRef)
+             ok = connection_close(ConnRef)
      end,
      fun(ConnRef) ->
              {inorder,
@@ -418,7 +435,7 @@ insert_delete_test() ->
     ?assertMatch(ok,  session_delete(SRef, "table:test", <<"a">>)),
     ?assertMatch(not_found,  session_get(SRef, "table:test", <<"a">>)),
     ok = session_close(SRef),
-    ok = conn_close(ConnRef).
+    ok = connection_close(ConnRef).
 
 init_test_table() ->
     ConnRef = open_test_conn(?TEST_DATA_DIR),
@@ -432,7 +449,7 @@ init_test_table() ->
 
 stop_test_table({ConnRef, SRef}) ->
     ?assertMatch(ok, session_close(SRef)),
-    ?assertMatch(ok, conn_close(ConnRef)).
+    ?assertMatch(ok, connection_close(ConnRef)).
 
 various_session_test_() ->
     {setup,
@@ -642,7 +659,7 @@ prop_put_delete() ->
                      ?cmd("rm -rf "++DataDir),
                      ok = filelib:ensure_dir(filename:join(DataDir, "x")),
                      Cfg = wterl:config_to_bin([{create,true}]),
-                     {ok, Conn} = wterl:conn_open(DataDir, Cfg),
+                     {ok, Conn} = wterl:connection_open(DataDir, Cfg),
                      {ok, SRef} = wterl:session_open(Conn),
                      try
                          wterl:session_create(SRef, Table),
@@ -658,7 +675,7 @@ prop_put_delete() ->
                          true
                      after
                          wterl:session_close(SRef),
-                         wterl:conn_close(Conn)
+                         wterl:connection_close(Conn)
                      end
                  end)).
 

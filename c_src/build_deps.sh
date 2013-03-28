@@ -26,7 +26,11 @@ case "$1" in
         fi
         (cd wiredtiger/build_posix && \
             ../configure --with-pic \
+                         --enable-snappy \
+                         --enable-bzip2 \
                          --prefix=$BASEDIR/system && \
-            make -j 8 && make install)
+            make -j && make install)
+	cp system/bin/wt ../priv
+	cp system/lib/*.so ../priv
         ;;
 esac

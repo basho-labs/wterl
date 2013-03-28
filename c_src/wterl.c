@@ -90,7 +90,7 @@ static ERL_NIF_TERM wterl_session_verify(ErlNifEnv* env, int argc, const ERL_NIF
 
 static ErlNifFunc nif_funcs[] =
 {
-    {"conn_close", 1, wterl_conn_close},
+    {"connection_close", 1, wterl_conn_close},
     {"conn_open", 2, wterl_conn_open},
     {"cursor_close", 1, wterl_cursor_close},
     {"cursor_insert", 3, wterl_cursor_insert},

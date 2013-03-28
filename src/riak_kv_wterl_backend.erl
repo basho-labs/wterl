@@ -85,7 +85,6 @@ capabilities(_, _) ->
 %% @doc Start the wterl backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
 start(Partition, Config) ->
-    %lager:start(),
     AppStart =
         case application:start(wterl) of
             ok ->
@@ -355,13 +354,13 @@ establish_connection(Config) ->
 		    wterl:config_value(session_max, Config, max_sessions(Config)),
 		    wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
 		    wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
-		    wterl:config_value(checkpoint, Config, [{wait, 10}]), % sec
+		    %% NOTE: LSM auto-checkpoints, so we don't have too.
+		    %% wterl:config_value(checkpoint, Config, [{wait, 10}]), % sec
 		    wterl:config_value(verbose, Config, [ 
 			  %"ckpt" "block", "shared_cache", "evictserver", "fileops",
 			  %"hazard", "mutex", "read", "readserver", "reconcile",
 			  %"salvage", "verify", "write", "evict", "lsm"
 		    ]) ] ++ proplists:get_value(wterl, Config, [])), % sec
-            %lager:info("WiredTiger connection:open(~s, ~s)", [DataRoot, wterl:config_to_bin(Opts)]),
             case wterl_conn:open(DataRoot, Opts) of
                 {ok, Connection} ->
                     {ok, Connection};
@@ -384,13 +383,15 @@ establish_session(Connection, Table) ->
     case wterl:session_open(Connection, wterl:config_to_bin([{isolation, "snapshot"}])) of
         {ok, Session} ->
             SessionOpts =
-                [%TODO {block_compressor, "snappy"},
+                [{block_compressor, "snappy"},
                  {internal_page_max, "128K"},
                  {leaf_page_max, "128K"},
-                 {lsm_chunk_size, "200MB"},
+                 {lsm_chunk_size, "25MB"},
 		 {lsm_bloom_newest, true},
 		 {lsm_bloom_oldest, true} ,
-                 {lsm_bloom_config, [{leaf_page_max, "10MB"}]} ],
+		 {lsm_bloom_bit_count, 128},
+		 {lsm_bloom_hash_count, 64},
+                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]} ],
             case wterl:session_create(Session, Table, wterl:config_to_bin(SessionOpts)) of
                 ok ->
 		    {ok, Session};
@@ -548,7 +549,6 @@ size_cache(RequestedSize) ->
                             "1GB"
                     end,
                 application:set_env(wterl, cache_size, FinalGuess),
-		%lager:info("Using cache size of ~p for WiredTiger storage backend.", [FinalGuess]),
                 FinalGuess;
             Value when is_list(Value) ->
                 Value;

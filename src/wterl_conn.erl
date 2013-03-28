@@ -82,7 +82,7 @@ init([]) ->
 
 handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
     {Reply, NState} =
-	case wterl:conn_open(Dir, wterl:config_to_bin(Config)) of
+	case wterl:connection_open(Dir, wterl:config_to_bin(Config)) of
 	    {ok, ConnRef}=OK ->
 		Monitor = erlang:monitor(process, Caller),
 		true = ets:insert(wterl_ets, {Monitor, Caller}),
@@ -164,7 +164,7 @@ code_change(_OldVsn, State, _Extra) ->
 do_close(undefined) ->
     ok;
 do_close(ConnRef) ->
-    wterl:conn_close(ConnRef).
+    wterl:connection_close(ConnRef).
 
 
 -ifdef(TEST).
