@@ -98,10 +98,16 @@ init() ->
 -spec connection_open(string(), config()) -> {ok, connection()} | {error, term()}.
 connection_open(HomeDir, Config) ->
     PrivDir = wterl:priv_dir(),
-    Bin = config_to_bin([{extensions,
-			  [filename:join(PrivDir, "libwiredtiger_snappy.so"),
-			   filename:join(PrivDir, "libwiredtiger_bzip2.so")]}],
-			[<<",">>, Config]),
+    {ok, PrivFiles} = file:list_dir(PrivDir),
+    SoFiles =
+	lists:filter(fun(Elem) ->
+			     case re:run(Elem, "^libwiredtiger_.*\.so$") of
+				 {match, _} -> true;
+				 nomatch -> false
+			     end
+		     end, PrivFiles),
+    SoPaths = lists:map(fun(Elem) -> filename:join(PrivDir, Elem) end, SoFiles),
+    Bin = config_to_bin([{extensions, SoPaths}], [<<",">>, Config]),
     conn_open(HomeDir, Bin).
 
 -spec conn_open(string(), config()) -> {ok, connection()} | {error, term()}.
