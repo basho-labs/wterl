@@ -3,6 +3,7 @@
 set -e
 
 WT_BRANCH=basho
+WT_REMOTE_REPO=http://github.com/wiredtiger/wiredtiger.git
 
 [ `basename $PWD` != "c_src" ] && cd c_src
 
@@ -21,8 +22,10 @@ case "$1" in
                 git fetch && \
                 git merge origin/$WT_BRANCH)
         else
-            git clone http://github.com/wiredtiger/wiredtiger.git -b $WT_BRANCH && \
-                (cd wiredtiger && ./autogen.sh)
+            git clone -b $WT_BRANCH --single-branch $WT_REMOTE_REPO && \
+            (cd wiredtiger && \
+             patch -p1 < ../wiredtiger-extension-link.patch && \
+             ./autogen.sh)
         fi
         (cd wiredtiger/build_posix && \
             ../configure --with-pic \
