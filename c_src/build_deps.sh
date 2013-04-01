@@ -30,8 +30,8 @@ case "$1" in
                          --enable-bzip2 \
                          --prefix=$BASEDIR/system && \
             make -j && make install)
-	[ -d $BASEDIR/../priv ] || mkdir $BASEDIR/../priv
-	cp $BASEDIR/system/bin/wt $BASEDIR/../priv
-	cp $BASEDIR/system/lib/*.so $BASEDIR/../priv
+        [ -d $BASEDIR/../priv ] || mkdir $BASEDIR/../priv
+        cp $BASEDIR/system/bin/wt $BASEDIR/../priv
+        cp $BASEDIR/system/lib/*.so $BASEDIR/../priv
         ;;
 esac
