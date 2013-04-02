@@ -35,7 +35,7 @@ fi
 rebar get-deps
 
 file=./deps/riak_kv/src/riak_kv.app.src
-if ! grep -q hanoidb $file && ! grep -q wterl $file ; then
+if ! grep -q wterl $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
     perl -i.orig -pe '/\bos_mon,/ && print qq(                  wterl,\n)' $file
