@@ -69,8 +69,7 @@
 -ifdef(TEST).
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
--define(QC_OUT(P),
-        eqc:on_output(fun(Str, Args) -> io:format(user, Str, Args) end, P)).
+-define(QC_OUT(P), eqc:on_output(fun(Str, Args) -> io:format(user, Str, Args) end, P)).
 -endif.
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -120,8 +119,8 @@ conn_open(HomeDir, Config) ->
 conn_open_nif(_AsyncRef, _HomeDir, _Config) ->
     ?nif_stub.
 
--spec conn_close(connection()) -> ok | {error, term()}.
-conn_close(ConnRef) ->
+-spec connection_close(connection()) -> ok | {error, term()}.
+connection_close(ConnRef) ->
     ?ASYNC_NIF_CALL(fun conn_close_nif/2, [ConnRef]).
 
 -spec conn_close_nif(reference(), connection()) -> ok | {error, term()}.
