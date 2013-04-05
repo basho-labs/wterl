@@ -28,6 +28,7 @@
          cursor_next_key/1,
          cursor_next_value/1,
          cursor_open/2,
+         cursor_open/3,
          cursor_prev/1,
          cursor_prev_key/1,
          cursor_prev_value/1,
@@ -36,28 +37,26 @@
          cursor_search/2,
          cursor_search_near/2,
          cursor_update/3,
-         session_checkpoint/1,
-         session_checkpoint/2,
-         session_close/1,
-         session_create/2,
-         session_create/3,
-         session_delete/3,
-         session_drop/2,
-         session_drop/3,
-         session_get/3,
-         session_open/1,
-         session_open/2,
-         session_put/4,
-         session_rename/3,
-         session_rename/4,
-         session_salvage/2,
-         session_salvage/3,
-         session_truncate/2,
-         session_truncate/3,
-         session_upgrade/2,
-         session_upgrade/3,
-         session_verify/2,
-         session_verify/3,
+         checkpoint/1,
+         checkpoint/2,
+         create/2,
+         create/4,
+         delete/3,
+         drop/2,
+         drop/3,
+         get/3,
+         put/4,
+         rename/3,
+         rename/4,
+         salvage/2,
+         salvage/3,
+         truncate/2,
+         truncate/3,
+         truncate/5,
+         upgrade/2,
+         upgrade/3,
+         verify/2,
+         verify/3,
          config_value/3,
          config_to_bin/1,
 	 priv_dir/0,
@@ -77,12 +76,11 @@
 -type config() :: binary().
 -type config_list() :: [{atom(), any()}].
 -opaque connection() :: reference().
--opaque session() :: reference().
 -opaque cursor() :: reference().
 -type key() :: binary().
 -type value() :: binary().
 
--export_type([connection/0, session/0, cursor/0]).
+-export_type([connection/0, cursor/0]).
 
 -on_load(init/0).
 
@@ -94,7 +92,9 @@ nif_stub_error(Line) ->
 
 -spec init() -> ok | {error, any()}.
 init() ->
-    erlang:load_nif(filename:join(priv_dir(), atom_to_list(?MODULE)), 0).
+    erlang:load_nif(filename:join(priv_dir(), atom_to_list(?MODULE)),
+		    [{wterl, "163a5073cb85db2a270ebe904e788bd8d478ea1c"},
+		     {wiredtiger, "e9a607b1b78ffa528631519b5cb6ac944468991e"}]).
 
 -spec connection_open(string(), config()) -> {ok, connection()} | {error, term()}.
 connection_open(HomeDir, Config) ->
@@ -127,143 +127,130 @@ connection_close(ConnRef) ->
 conn_close_nif(_AsyncRef, _ConnRef) ->
     ?nif_stub.
 
--spec session_open(connection()) -> {ok, session()} | {error, term()}.
--spec session_open(connection(), config()) -> {ok, session()} | {error, term()}.
-session_open(ConnRef) ->
-    session_open(ConnRef, ?EMPTY_CONFIG).
-session_open(ConnRef, Config) ->
-    ?ASYNC_NIF_CALL(fun session_open_nif/3, [ConnRef, Config]).
+-spec create(connection(), string()) -> ok | {error, term()}.
+-spec create(connection(), string(), config(), config()) -> ok | {error, term()}.
+create(Ref, Name) ->
+    create(Ref, Name, ?EMPTY_CONFIG, ?EMPTY_CONFIG).
+create(Ref, Name, Config, SessionConfig) ->
+    ?ASYNC_NIF_CALL(fun create_nif/5, [Ref, Name, Config, SessionConfig]).
 
--spec session_open_nif(reference(), connection(), config()) -> {ok, session()} | {error, term()}.
-session_open_nif(_AsyncRef, _ConnRef, _Config) ->
+-spec create_nif(reference(), connection(), string(), config(), config()) -> ok | {error, term()}.
+create_nif(_AsyncNif, _Ref, _Name, _Config, _SessionConfig) ->
     ?nif_stub.
 
--spec session_close(session()) -> ok | {error, term()}.
-session_close(Ref) ->
-    ?ASYNC_NIF_CALL(fun session_close_nif/2, [Ref]).
+-spec drop(connection(), string()) -> ok | {error, term()}.
+-spec drop(connection(), string(), config()) -> ok | {error, term()}.
+drop(Ref, Name) ->
+    drop(Ref, Name, ?EMPTY_CONFIG).
+drop(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun drop_nif/4, [Ref, Name, Config]).
 
--spec session_close_nif(reference(), session()) -> ok | {error, term()}.
-session_close_nif(_AsyncRef, _Ref) ->
+-spec drop_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+drop_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec session_create(session(), string()) -> ok | {error, term()}.
--spec session_create(session(), string(), config()) -> ok | {error, term()}.
-session_create(Ref, Name) ->
-    session_create(Ref, Name, ?EMPTY_CONFIG).
-session_create(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun session_create_nif/4, [Ref, Name, Config]).
+-spec delete(connection(), string(), key()) -> ok | {error, term()}.
+delete(Ref, Table, Key) ->
+    ?ASYNC_NIF_CALL(fun delete_nif/4, [Ref, Table, Key]).
 
--spec session_create_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
-session_create_nif(_AsyncNif, _Ref, _Name, _Config) ->
+-spec delete_nif(reference(), connection(), string(), key()) -> ok | {error, term()}.
+delete_nif(_AsyncRef, _Ref, _Table, _Key) ->
     ?nif_stub.
 
--spec session_drop(session(), string()) -> ok | {error, term()}.
--spec session_drop(session(), string(), config()) -> ok | {error, term()}.
-session_drop(Ref, Name) ->
-    session_drop(Ref, Name, ?EMPTY_CONFIG).
-session_drop(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun session_drop_nif/4, [Ref, Name, Config]).
+-spec get(connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
+get(Ref, Table, Key) ->
+    ?ASYNC_NIF_CALL(fun get_nif/4, [Ref, Table, Key]).
 
--spec session_drop_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
-session_drop_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec get_nif(reference(), connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
+get_nif(_AsyncRef, _Ref, _Table, _Key) ->
     ?nif_stub.
 
--spec session_delete(session(), string(), key()) -> ok | {error, term()}.
-session_delete(Ref, Table, Key) ->
-    ?ASYNC_NIF_CALL(fun session_delete_nif/4, [Ref, Table, Key]).
+-spec put(connection(), string(), key(), value()) -> ok | {error, term()}.
+put(Ref, Table, Key, Value) ->
+    ?ASYNC_NIF_CALL(fun put_nif/5, [Ref, Table, Key, Value]).
 
--spec session_delete_nif(reference(), session(), string(), key()) -> ok | {error, term()}.
-session_delete_nif(_AsyncRef, _Ref, _Table, _Key) ->
+-spec put_nif(reference(), connection(), string(), key(), value()) -> ok | {error, term()}.
+put_nif(_AsyncRef, _Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
--spec session_get(session(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
-session_get(Ref, Table, Key) ->
-    ?ASYNC_NIF_CALL(fun session_get_nif/4, [Ref, Table, Key]).
+-spec rename(connection(), string(), string()) -> ok | {error, term()}.
+-spec rename(connection(), string(), string(), config()) -> ok | {error, term()}.
+rename(Ref, OldName, NewName) ->
+    rename(Ref, OldName, NewName, ?EMPTY_CONFIG).
+rename(Ref, OldName, NewName, Config) ->
+    ?ASYNC_NIF_CALL(fun rename_nif/5, [Ref, OldName, NewName, Config]).
 
--spec session_get_nif(reference(), session(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
-session_get_nif(_AsyncRef, _Ref, _Table, _Key) ->
+-spec rename_nif(reference(), connection(), string(), string(), config()) -> ok | {error, term()}.
+rename_nif(_AsyncRef, _Ref, _OldName, _NewName, _Config) ->
     ?nif_stub.
 
--spec session_put(session(), string(), key(), value()) -> ok | {error, term()}.
-session_put(Ref, Table, Key, Value) ->
-    ?ASYNC_NIF_CALL(fun session_put_nif/5, [Ref, Table, Key, Value]).
+-spec salvage(connection(), string()) -> ok | {error, term()}.
+-spec salvage(connection(), string(), config()) -> ok | {error, term()}.
+salvage(Ref, Name) ->
+    salvage(Ref, Name, ?EMPTY_CONFIG).
+salvage(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun salvage_nif/4, [Ref, Name, Config]).
 
--spec session_put_nif(reference(), session(), string(), key(), value()) -> ok | {error, term()}.
-session_put_nif(_AsyncRef, _Ref, _Table, _Key, _Value) ->
+-spec salvage_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+salvage_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec session_rename(session(), string(), string()) -> ok | {error, term()}.
--spec session_rename(session(), string(), string(), config()) -> ok | {error, term()}.
-session_rename(Ref, OldName, NewName) ->
-    session_rename(Ref, OldName, NewName, ?EMPTY_CONFIG).
-session_rename(Ref, OldName, NewName, Config) ->
-    ?ASYNC_NIF_CALL(fun session_rename_nif/5, [Ref, OldName, NewName, Config]).
+-spec checkpoint(connection()) -> ok | {error, term()}.
+-spec checkpoint(connection(), config()) -> ok | {error, term()}.
+checkpoint(_Ref) ->
+    checkpoint(_Ref, ?EMPTY_CONFIG).
+checkpoint(Ref, Config) ->
+    ?ASYNC_NIF_CALL(fun checkpoint_nif/3, [Ref, Config]).
 
--spec session_rename_nif(reference(), session(), string(), string(), config()) -> ok | {error, term()}.
-session_rename_nif(_AsyncRef, _Ref, _OldName, _NewName, _Config) ->
+-spec checkpoint_nif(reference(), connection(), config()) -> ok | {error, term()}.
+checkpoint_nif(_AsyncRef, _Ref, _Config) ->
     ?nif_stub.
 
--spec session_salvage(session(), string()) -> ok | {error, term()}.
--spec session_salvage(session(), string(), config()) -> ok | {error, term()}.
-session_salvage(Ref, Name) ->
-    session_salvage(Ref, Name, ?EMPTY_CONFIG).
-session_salvage(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun session_salvage_nif/4, [Ref, Name, Config]).
+-spec truncate(connection(), string()) -> ok | {error, term()}.
+-spec truncate(connection(), string(), config()) -> ok | {error, term()}.
+truncate(Ref, Name, Config) ->
+    truncate(Ref, Name, 0, 0, Config).
+-spec truncate(connection(), string(), cursor() | 0, cursor() | 0, config()) -> ok | {error, term()}.
+truncate(Ref, Name) ->
+    truncate(Ref, Name, 0, 0, ?EMPTY_CONFIG).
+truncate(Ref, Name, Start, Stop, Config) ->
+    ?ASYNC_NIF_CALL(fun truncate_nif/6, [Ref, Name, Start, Stop, Config]).
 
--spec session_salvage_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
-session_salvage_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec truncate_nif(reference(), connection(), string(), cursor() | 0, cursor() | 0, config()) -> ok | {error, term()}.
+truncate_nif(_AsyncRef, _Ref, _Name, _Start, _Stop, _Config) ->
     ?nif_stub.
 
--spec session_checkpoint(session()) -> ok | {error, term()}.
--spec session_checkpoint(session(), config()) -> ok | {error, term()}.
-session_checkpoint(_Ref) ->
-    session_checkpoint(_Ref, ?EMPTY_CONFIG).
-session_checkpoint(Ref, Config) ->
-    ?ASYNC_NIF_CALL(fun session_checkpoint_nif/3, [Ref, Config]).
+-spec upgrade(connection(), string()) -> ok | {error, term()}.
+-spec upgrade(connection(), string(), config()) -> ok | {error, term()}.
+upgrade(Ref, Name) ->
+    upgrade(Ref, Name, ?EMPTY_CONFIG).
+upgrade(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun upgrade_nif/4, [Ref, Name, Config]).
 
--spec session_checkpoint_nif(reference(), session(), config()) -> ok | {error, term()}.
-session_checkpoint_nif(_AsyncRef, _Ref, _Config) ->
+-spec upgrade_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+upgrade_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec session_truncate(session(), string()) -> ok | {error, term()}.
--spec session_truncate(session(), string(), config()) -> ok | {error, term()}.
-session_truncate(Ref, Name) ->
-    session_truncate(Ref, Name, ?EMPTY_CONFIG).
-session_truncate(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun session_truncate_nif/4, [Ref, Name, Config]).
+-spec verify(connection(), string()) -> ok | {error, term()}.
+-spec verify(connection(), string(), config()) -> ok | {error, term()}.
+verify(Ref, Name) ->
+    verify(Ref, Name, ?EMPTY_CONFIG).
+verify(Ref, Name, Config) ->
+    ?ASYNC_NIF_CALL(fun verify_nif/4, [Ref, Name, Config]).
 
--spec session_truncate_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
-session_truncate_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec verify_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec session_upgrade(session(), string()) -> ok | {error, term()}.
--spec session_upgrade(session(), string(), config()) -> ok | {error, term()}.
-session_upgrade(Ref, Name) ->
-    session_upgrade(Ref, Name, ?EMPTY_CONFIG).
-session_upgrade(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun session_upgrade_nif/4, [Ref, Name, Config]).
-
--spec session_upgrade_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
-session_upgrade_nif(_AsyncRef, _Ref, _Name, _Config) ->
-    ?nif_stub.
-
--spec session_verify(session(), string()) -> ok | {error, term()}.
--spec session_verify(session(), string(), config()) -> ok | {error, term()}.
-session_verify(Ref, Name) ->
-    session_verify(Ref, Name, ?EMPTY_CONFIG).
-session_verify(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun session_verify_nif/4, [Ref, Name, Config]).
-
--spec session_verify_nif(reference(), session(), string(), config()) -> ok | {error, term()}.
-session_verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
-    ?nif_stub.
-
--spec cursor_open(session(), string()) -> {ok, cursor()} | {error, term()}.
+-spec cursor_open(connection(), string()) -> {ok, cursor()} | {error, term()}.
+-spec cursor_open(connection(), string(), config() | 0) -> {ok, cursor()} | {error, term()}.
 cursor_open(Ref, Table) ->
-    ?ASYNC_NIF_CALL(fun cursor_open_nif/3, [Ref, Table]).
+    cursor_open(Ref, Table, 0).
+cursor_open(Ref, Table, Config) ->
+    ?ASYNC_NIF_CALL(fun cursor_open_nif/4, [Ref, Table, Config]).
 
--spec cursor_open_nif(reference(), session(), string()) -> {ok, cursor()} | {error, term()}.
-cursor_open_nif(_AsyncRef, _Ref, _Table) ->
+-spec cursor_open_nif(reference(), connection(), string(), config() | 0) -> {ok, cursor()} | {error, term()}.
+cursor_open_nif(_AsyncRef, _Ref, _Table, _Config) ->
     ?nif_stub.
 
 -spec cursor_close(cursor()) -> ok | {error, term()}.
@@ -518,11 +505,10 @@ open_test_conn(DataDir) ->
     {ok, ConnRef} = connection_open(DataDir, OpenConfig),
     ConnRef.
 
-open_test_session(ConnRef) ->
-    {ok, SRef} = session_open(ConnRef),
-    ?assertMatch(ok, session_drop(SRef, "table:test", config_to_bin([{force,true}]))),
-    ?assertMatch(ok, session_create(SRef, "table:test", config_to_bin([{block_compressor, "snappy"}]))),
-    SRef.
+open_test_table(ConnRef) ->
+    ?assertMatch(ok, drop(ConnRef, "table:test", config_to_bin([{force,true}]))),
+    ?assertMatch(ok, create(ConnRef, "table:test", config_to_bin([{block_compressor, "snappy"}]))),
+    ConnRef.
 
 conn_test() ->
     ConnRef = open_test_conn(?TEST_DATA_DIR),
@@ -538,110 +524,102 @@ session_test_() ->
      end,
      fun(ConnRef) ->
              {inorder,
-              [{"open/close a session",
+              [{"create and drop a table",
                 fun() ->
-                        {ok, SRef} = session_open(ConnRef),
-                        ?assertMatch(ok, session_close(SRef))
-                end},
-               {"create and drop a table",
-                fun() ->
-                        SRef = open_test_session(ConnRef),
-                        ?assertMatch(ok, session_drop(SRef, "table:test")),
-                        ?assertMatch(ok, session_close(SRef))
+                        ConnRef = open_test_table(ConnRef),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end}]}
      end}.
 
 insert_delete_test() ->
     ConnRef = open_test_conn(?TEST_DATA_DIR),
-    SRef = open_test_session(ConnRef),
-    ?assertMatch(ok, session_put(SRef, "table:test", <<"a">>, <<"apple">>)),
-    ?assertMatch({ok, <<"apple">>}, session_get(SRef, "table:test", <<"a">>)),
-    ?assertMatch(ok,  session_delete(SRef, "table:test", <<"a">>)),
-    ?assertMatch(not_found,  session_get(SRef, "table:test", <<"a">>)),
-    ok = session_close(SRef),
+    ConnRef = open_test_table(ConnRef),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"a">>, <<"apple">>)),
+    ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+    ?assertMatch(ok, delete(ConnRef, "table:test", <<"a">>)),
+    ?assertMatch(not_found,  get(ConnRef, "table:test", <<"a">>)),
     ok = connection_close(ConnRef).
 
 init_test_table() ->
     ConnRef = open_test_conn(?TEST_DATA_DIR),
-    SRef = open_test_session(ConnRef),
-    ?assertMatch(ok, session_put(SRef, "table:test", <<"a">>, <<"apple">>)),
-    ?assertMatch(ok, session_put(SRef, "table:test", <<"b">>, <<"banana">>)),
-    ?assertMatch(ok, session_put(SRef, "table:test", <<"c">>, <<"cherry">>)),
-    ?assertMatch(ok, session_put(SRef, "table:test", <<"d">>, <<"date">>)),
-    ?assertMatch(ok, session_put(SRef, "table:test", <<"g">>, <<"gooseberry">>)),
-    {ConnRef, SRef}.
+    ConnRef = open_test_table(ConnRef),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"a">>, <<"apple">>)),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"b">>, <<"banana">>)),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"c">>, <<"cherry">>)),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"d">>, <<"date">>)),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"g">>, <<"gooseberry">>)),
+    ConnRef.
 
-stop_test_table({ConnRef, SRef}) ->
-    ?assertMatch(ok, session_close(SRef)),
+stop_test_table(ConnRef) ->
     ?assertMatch(ok, connection_close(ConnRef)).
 
 various_session_test_() ->
     {setup,
      fun init_test_table/0,
      fun stop_test_table/1,
-     fun({_, SRef}) ->
+     fun(ConnRef) ->
              {inorder,
               [{"session verify",
                 fun() ->
-                        ?assertMatch(ok, session_verify(SRef, "table:test")),
+                        ?assertMatch(ok, verify(ConnRef, "table:test")),
                         ?assertMatch({ok, <<"apple">>},
-                                     session_get(SRef, "table:test", <<"a">>))
+                                     get(ConnRef, "table:test", <<"a">>))
                 end},
                {"session checkpoint",
                 fun() ->
                         Cfg = wterl:config_to_bin([{target, ["\"table:test\""]}]),
-                        ?assertMatch(ok, session_checkpoint(SRef, Cfg)),
+                        ?assertMatch(ok, checkpoint(ConnRef, Cfg)),
                         ?assertMatch({ok, <<"apple">>},
-                                     session_get(SRef, "table:test", <<"a">>))
+				     get(ConnRef, "table:test", <<"a">>))
                 end},
                {"session salvage",
                 fun() ->
-                        ok = session_salvage(SRef, "table:test"),
-                        {ok, <<"apple">>} = session_get(SRef, "table:test", <<"a">>)
+                        ok = salvage(ConnRef, "table:test"),
+                        {ok, <<"apple">>} = get(ConnRef, "table:test", <<"a">>)
                 end},
                {"session upgrade",
                 fun() ->
-                        ?assertMatch(ok, session_upgrade(SRef, "table:test")),
+                        ?assertMatch(ok, upgrade(ConnRef, "table:test")),
                         ?assertMatch({ok, <<"apple">>},
-                                     session_get(SRef, "table:test", <<"a">>))
+                                     get(ConnRef, "table:test", <<"a">>))
                 end},
                {"session rename",
                 fun() ->
                         ?assertMatch(ok,
-                                     session_rename(SRef, "table:test", "table:new")),
+                                     rename(ConnRef, "table:test", "table:new")),
                         ?assertMatch({ok, <<"apple">>},
-                                     session_get(SRef, "table:new", <<"a">>)),
+                                     get(ConnRef, "table:new", <<"a">>)),
                         ?assertMatch(ok,
-                                     session_rename(SRef, "table:new", "table:test")),
+                                     rename(ConnRef, "table:new", "table:test")),
                         ?assertMatch({ok, <<"apple">>},
-                                     session_get(SRef, "table:test", <<"a">>))
+                                     get(ConnRef, "table:test", <<"a">>))
                 end},
                {"session truncate",
                 fun() ->
-                        ?assertMatch(ok, session_truncate(SRef, "table:test")),
-                        ?assertMatch(not_found, session_get(SRef, "table:test", <<"a">>))
+                        ?assertMatch(ok, truncate(ConnRef, "table:test")),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
                 end}]}
      end}.
 
 cursor_open_close_test() ->
-    {ConnRef, SRef} = init_test_table(),
-    {ok, Cursor1} = cursor_open(SRef, "table:test"),
+    ConnRef = init_test_table(),
+    {ok, Cursor1} = cursor_open(ConnRef, "table:test"),
     ?assertMatch({ok, <<"a">>, <<"apple">>}, cursor_next(Cursor1)),
     ?assertMatch(ok, cursor_close(Cursor1)),
-    {ok, Cursor2} = cursor_open(SRef, "table:test"),
+    {ok, Cursor2} = cursor_open(ConnRef, "table:test"),
     ?assertMatch({ok, <<"g">>, <<"gooseberry">>}, cursor_prev(Cursor2)),
     ?assertMatch(ok, cursor_close(Cursor2)),
-    stop_test_table({ConnRef, SRef}).
+    stop_test_table(ConnRef).
 
 various_cursor_test_() ->
     {setup,
      fun init_test_table/0,
      fun stop_test_table/1,
-     fun({_, SRef}) ->
+     fun(ConnRef) ->
              {inorder,
               [{"move a cursor back and forth, getting key",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch({ok, <<"a">>}, cursor_next_key(Cursor)),
                         ?assertMatch({ok, <<"b">>}, cursor_next_key(Cursor)),
                         ?assertMatch({ok, <<"c">>}, cursor_next_key(Cursor)),
@@ -654,7 +632,7 @@ various_cursor_test_() ->
                 end},
                {"move a cursor back and forth, getting value",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch({ok, <<"apple">>}, cursor_next_value(Cursor)),
                         ?assertMatch({ok, <<"banana">>}, cursor_next_value(Cursor)),
                         ?assertMatch({ok, <<"cherry">>}, cursor_next_value(Cursor)),
@@ -667,7 +645,7 @@ various_cursor_test_() ->
                 end},
                {"move a cursor back and forth, getting key and value",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch({ok, <<"a">>, <<"apple">>}, cursor_next(Cursor)),
                         ?assertMatch({ok, <<"b">>, <<"banana">>}, cursor_next(Cursor)),
                         ?assertMatch({ok, <<"c">>, <<"cherry">>}, cursor_next(Cursor)),
@@ -680,27 +658,27 @@ various_cursor_test_() ->
                 end},
                {"fold keys",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch([<<"g">>, <<"d">>, <<"c">>, <<"b">>, <<"a">>],
                                      fold_keys(Cursor, fun(Key, Acc) -> [Key | Acc] end, [])),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
                {"search for an item",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch({ok, <<"banana">>}, cursor_search(Cursor, <<"b">>)),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
                {"range search for an item",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch({ok, <<"gooseberry">>},
                                      cursor_search_near(Cursor, <<"z">>)),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
                {"check cursor reset",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch({ok, <<"apple">>}, cursor_next_value(Cursor)),
                         ?assertMatch(ok, cursor_reset(Cursor)),
                         ?assertMatch({ok, <<"apple">>}, cursor_next_value(Cursor)),
@@ -708,7 +686,7 @@ various_cursor_test_() ->
                 end},
                {"insert/overwrite an item using a cursor",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch(ok,
                                      cursor_insert(Cursor, <<"h">>, <<"huckleberry">>)),
                         ?assertMatch({ok, <<"huckleberry">>},
@@ -719,28 +697,28 @@ various_cursor_test_() ->
                                      cursor_search(Cursor, <<"g">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
                         ?assertMatch({ok, <<"grapefruit">>},
-                                     session_get(SRef, "table:test", <<"g">>)),
+                                     get(ConnRef, "table:test", <<"g">>)),
                         ?assertMatch({ok, <<"huckleberry">>},
-                                     session_get(SRef, "table:test", <<"h">>))
+                                     get(ConnRef, "table:test", <<"h">>))
                 end},
                {"update an item using a cursor",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch(ok,
                                      cursor_update(Cursor, <<"g">>, <<"goji berries">>)),
                         ?assertMatch(not_found,
                                      cursor_update(Cursor, <<"k">>, <<"kumquat">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
                         ?assertMatch({ok, <<"goji berries">>},
-                                     session_get(SRef, "table:test", <<"g">>))
+                                     get(ConnRef, "table:test", <<"g">>))
                 end},
                {"remove an item using a cursor",
                 fun() ->
-                        {ok, Cursor} = cursor_open(SRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
                         ?assertMatch(ok, cursor_remove(Cursor, <<"g">>)),
                         ?assertMatch(not_found, cursor_remove(Cursor, <<"l">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
-                        ?assertMatch(not_found, session_get(SRef, "table:test", <<"g">>))
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"g">>))
                 end}]}
      end}.
 
@@ -758,13 +736,13 @@ values() ->
 ops(Keys, Values) ->
     {oneof([put, delete]), oneof(Keys), oneof(Values)}.
 
-apply_kv_ops([], _SRef, _Tbl, Acc0) ->
+apply_kv_ops([], _ConnRef, _Tbl, Acc0) ->
     Acc0;
-apply_kv_ops([{put, K, V} | Rest], SRef, Tbl, Acc0) ->
-    ok = wterl:session_put(SRef, Tbl, K, V),
-    apply_kv_ops(Rest, SRef, Tbl, orddict:store(K, V, Acc0));
-apply_kv_ops([{delete, K, _} | Rest], SRef, Tbl, Acc0) ->
-    ok = case wterl:session_delete(SRef, Tbl, K) of
+apply_kv_ops([{put, K, V} | Rest], ConnRef, Tbl, Acc0) ->
+    ok = wterl:put(ConnRef, Tbl, K, V),
+    apply_kv_ops(Rest, ConnRef, Tbl, orddict:store(K, V, Acc0));
+apply_kv_ops([{delete, K, _} | Rest], ConnRef, Tbl, Acc0) ->
+    ok = case wterl:delete(ConnRef, Tbl, K) of
              ok ->
                  ok;
              not_found ->
@@ -772,7 +750,7 @@ apply_kv_ops([{delete, K, _} | Rest], SRef, Tbl, Acc0) ->
              Else ->
                  Else
          end,
-    apply_kv_ops(Rest, SRef, Tbl, orddict:store(K, deleted, Acc0)).
+    apply_kv_ops(Rest, ConnRef, Tbl, orddict:store(K, deleted, Acc0)).
 
 prop_put_delete() ->
     ?LET({Keys, Values}, {keys(), values()},
@@ -786,21 +764,19 @@ prop_put_delete() ->
                      ok = filelib:ensure_dir(filename:join(DataDir, "x")),
                      Cfg = wterl:config_to_bin([{create,true}]),
                      {ok, Conn} = wterl:connection_open(DataDir, Cfg),
-                     {ok, SRef} = wterl:session_open(Conn),
                      try
-                         wterl:session_create(SRef, Table),
-                         Model = apply_kv_ops(Ops, SRef, Table, []),
+                         wterl:create(ConnRef, Table),
+                         Model = apply_kv_ops(Ops, ConnRef, Table, []),
 
                          %% Validate that all deleted values return not_found
                          F = fun({K, deleted}) ->
-                                     ?assertEqual(not_found, wterl:session_get(SRef, Table, K));
+                                     ?assertEqual(not_found, wterl:get(ConnRef, Table, K));
                                 ({K, V}) ->
-                                     ?assertEqual({ok, V}, wterl:session_get(SRef, Table, K))
+                                     ?assertEqual({ok, V}, wterl:get(ConnRef, Table, K))
                              end,
                          lists:map(F, Model),
                          true
                      after
-                         wterl:session_close(SRef),
                          wterl:connection_close(Conn)
                      end
                  end)).
