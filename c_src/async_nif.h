@@ -57,6 +57,12 @@ struct async_nif_state {
   struct async_nif_worker_entry worker_entries[ASYNC_NIF_MAX_WORKERS];
 };
 
+struct async_nif_worker_info {
+  struct async_nif_state *async_nif;
+  struct async_nif_worker_entry *worker;
+  unsigned int worker_id;
+};
+
 #define ASYNC_NIF_DECL(decl, frame, pre_block, work_block, post_block)  \
   struct decl ## _args frame;                                           \
   static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) work_block \
@@ -72,7 +78,7 @@ struct async_nif_state {
     /* argv[0] is a ref used for selective recv */                      \
     const ERL_NIF_TERM *argv = argv_in + 1;                             \
     argc--;                                                             \
-    async_nif = (struct async_nif_state*)enif_priv_data(env);		\
+    struct async_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env); \
     if (async_nif->shutdown)						\
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "shutdown"));         \
@@ -106,18 +112,13 @@ struct async_nif_state {
   }
 
 #define ASYNC_NIF_LOAD() async_nif_load();
-#define ASYNC_NIF_UNLOAD() async_nif_unload();
-//define ASYNC_NIF_RELOAD()
-#define ASYNC_NIF_UPGRADE() async_nif_unload();
+#define ASYNC_NIF_UNLOAD(env) async_nif_unload(env);
+#define ASYNC_NIF_UPGRADE(env) async_nif_unload(env);
 
 #define ASYNC_NIF_RETURN_BADARG() return enif_make_badarg(env);
 #define ASYNC_NIF_WORK_ENV new_env
 
-#ifndef PULSE_FORCE_USING_PULSE_SEND_HERE
 #define ASYNC_NIF_REPLY(msg) enif_send(NULL, pid, env, enif_make_tuple2(env, ref, msg))
-#else
-#define ASYNC_NIF_REPLY(msg) PULSE_SEND(NULL, pid, env, enif_make_tuple2(env, ref, msg))
-#endif
 
 static ERL_NIF_TERM
 async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_entry *req)
@@ -125,7 +126,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* If we're shutting down return an error term and ignore the request. */
   if (async_nif->shutdown) {
     return enif_make_tuple2(req->env, enif_make_atom(req->env, "error"),
-			    enif_make_atom(req->env, "shutdown")));
+			    enif_make_atom(req->env, "shutdown"));
   }
 
   /* Otherwise, add the request to the work queue. */
@@ -135,21 +136,28 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   enif_mutex_unlock(async_nif->req_mutex);
   enif_cond_broadcast(async_nif->cnd);
 
-  return enif_make_tuple2(env, enif_make_atom(env, "ok"),
-                          enif_make_tuple2(env, enif_make_atom(env, "enqueued"),
-					   enif_make_int(env, async_nif->req_count))); \
+  return enif_make_tuple2(req->env, enif_make_atom(req->env, "ok"),
+                          enif_make_tuple2(req->env, enif_make_atom(req->env, "enqueued"),
+					   enif_make_int(req->env, async_nif->req_count))); \
 }
 
-static void *async_nif_worker_fn(void *arg)
+static void *
+async_nif_worker_fn(void *arg)
 {
-  struct async_nif_worker_entry *worker = (struct async_nif_worker_entry *)arg;
-  struct async_nif_req_entry *req = NULL;
+  struct async_nif_worker_info *wi = (struct async_nif_worker_info *)arg;
+  struct async_nif_worker_entry *worker = wi->worker;
+  struct async_nif_state *async_nif = wi->async_nif;
+  unsigned int worker_id = wi->worker_id;
+
+  free(wi); // Allocated when starting the thread, now no longer needed.
 
   /*
    * Workers are active while there is work on the queue to do and
    * only in the idle list when they are waiting on new work.
    */
   for(;;) {
+    struct async_nif_req_entry *req = NULL;
+
     /* Examine the request queue, are there things to be done? */
     enif_mutex_lock(async_nif->req_mutex);
     enif_mutex_lock(async_nif->worker_mutex);
@@ -163,7 +171,8 @@ static void *async_nif_worker_fn(void *arg)
       goto check_again_for_work;
     } else {
       /* `req` is our work request and we hold the req_mutex lock. */
-      // TODO: do we need this? enif_cond_broadcast(async_nif->cnd);
+      // TODO: do we need this broadcast?
+      enif_cond_broadcast(async_nif->cnd);
 
       /* Remove this thread from the list of idle threads. */
       enif_mutex_lock(async_nif->worker_mutex);
@@ -172,12 +181,11 @@ static void *async_nif_worker_fn(void *arg)
 
       do {
         /* Take the request off the queue. */
-        STAILQ_REMOVE(&async_nif->reqs, req, async_nif->req_entry, entries);
+        STAILQ_REMOVE(&async_nif->reqs, req, async_nif_req_entry, entries);
 	async_nif->req_count--;
         enif_mutex_unlock(async_nif->req_mutex);
 
         /* Finally, do the work. */
-        unsigned int worker_id = (unsigned int)(worker - worker_entries);
         req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
         req->fn_post(req->args);
         enif_free(req->args);
@@ -205,7 +213,7 @@ static void *async_nif_worker_fn(void *arg)
 static void async_nif_unload(ErlNifEnv *env)
 {
   unsigned int i;
-  struct_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env);
+  struct async_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env);
 
   /* Signal the worker threads, stop what you're doing and exit. */
   enif_mutex_lock(async_nif->req_mutex);
@@ -249,23 +257,25 @@ static void async_nif_unload(ErlNifEnv *env)
 static void *
 async_nif_load(void)
 {
+  static int has_init = 0;
   int i, num_schedulers;
-  ErlDrvSysInfo info;
+  ErlNifSysInfo info;
   struct async_nif_state *async_nif;
 
   /* Don't init more than once. */
-  if (async_nif_req_mutex) return 0;
+  if (has_init) return 0;
+  else has_init = 1;
 
   /* Find out how many schedulers there are. */
-  erl_drv_sys_info(&info, sizeof(ErlDrvSysInfo));
-  num_schedulers = info->scheduler_threads;
+  enif_system_info(&info, sizeof(ErlNifSysInfo));
+  num_schedulers = info.scheduler_threads;
 
   /* Init our portion of priv_data's module-specific state. */
   async_nif = malloc(sizeof(struct async_nif_state));
   if (!async_nif)
       return NULL;
-  STAILQ_INIT(async_nif->reqs);
-  LIST_INIT(async_nif->workers);
+  STAILQ_INIT(&(async_nif->reqs));
+  LIST_INIT(&(async_nif->workers));
   async_nif->shutdown = 0;
 
   async_nif->req_mutex = enif_mutex_create(NULL);
@@ -287,8 +297,13 @@ async_nif_load(void)
       num_worker_threads = 1;
 
   for (i = 0; i < num_worker_threads; i++) {
+    struct async_nif_worker_info *wi;
+    wi = malloc(sizeof(struct async_nif_worker_info)); // TODO: check
+    wi->async_nif = async_nif;
+    wi->worker = &async_nif->worker_entries[i];
+    wi->worker_id = i;
     if (enif_thread_create(NULL, &async_nif->worker_entries[i].tid,
-                            &async_nif_worker_fn, (void*)&async_nif->worker_entries[i], NULL) != 0) {
+                            &async_nif_worker_fn, (void*)&wi, NULL) != 0) {
       async_nif->shutdown = 1;
       enif_cond_broadcast(async_nif->cnd);
       enif_mutex_unlock(async_nif->worker_mutex);
