@@ -1550,7 +1550,8 @@ __resource_conn_dtor(ErlNifEnv *env, void *obj)
     WterlConnHandle *conn_handle = (WterlConnHandle *)obj;
     /* Free up the shared sessions and cursors. */
     enif_mutex_lock(conn_handle->context_mutex);
-    for (int i = 0; i < conn_handle->num_contexts; i++) {
+    int i;
+    for (i = 0; i < conn_handle->num_contexts; i++) {
 	WterlCtx *ctx = &conn_handle->contexts[i]; 
 	WT_CURSOR *cursor;
 	kh_foreach_value(ctx->cursors, cursor, {
