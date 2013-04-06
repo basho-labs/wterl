@@ -96,8 +96,11 @@ init() ->
 		    [{wterl, "163a5073cb85db2a270ebe904e788bd8d478ea1c"},
 		     {wiredtiger, "e9a607b1b78ffa528631519b5cb6ac944468991e"}]).
 
--spec connection_open(string(), config()) -> {ok, connection()} | {error, term()}.
-connection_open(HomeDir, Config) ->
+-spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
+-spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
+connection_open(HomeDir, ConnectionConfig) ->
+    connection_open(HomeDir, ConnectionConfig, []).
+connection_open(HomeDir, ConnectionConfig, SessionConfig) ->
     PrivDir = wterl:priv_dir(),
     {ok, PrivFiles} = file:list_dir(PrivDir),
     SoFiles =
@@ -108,15 +111,25 @@ connection_open(HomeDir, Config) ->
 			     end
 		     end, PrivFiles),
     SoPaths = lists:map(fun(Elem) -> filename:join(PrivDir, Elem) end, SoFiles),
-    Bin = config_to_bin([{extensions, SoPaths}], [<<",">>, Config]),
-    conn_open(HomeDir, Bin).
+    conn_open(HomeDir, [{extensions, SoPaths}] ++ ConnectionConfig, SessionConfig).
 
--spec conn_open(string(), config()) -> {ok, connection()} | {error, term()}.
-conn_open(HomeDir, Config) ->
-    ?ASYNC_NIF_CALL(fun conn_open_nif/3, [HomeDir, Config]).
+-spec conn_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
+conn_open(HomeDir, ConnectionConfig, SessionConfig)
+  when is_list(ConnectionConfig), length(ConnectionConfig) =:= 0,
+       is_list(SessionConfig), length(SessionConfig) =:= 0 ->
+    ?ASYNC_NIF_CALL(fun conn_open_nif/4, [HomeDir, 0, 0]);
+conn_open(HomeDir, ConnectionConfig, SessionConfig)
+  when is_list(ConnectionConfig),
+       is_list(SessionConfig), length(SessionConfig) =:= 0 ->
+    ?ASYNC_NIF_CALL(fun conn_open_nif/4, [HomeDir, config_to_bin(ConnectionConfig), 0]);
+conn_open(HomeDir, ConnectionConfig, SessionConfig)
+  when is_list(ConnectionConfig), is_list(SessionConfig) ->
+    ?ASYNC_NIF_CALL(fun conn_open_nif/4, [HomeDir,
+                                          config_to_bin(ConnectionConfig),
+                                          config_to_bin(SessionConfig)]).
 
--spec conn_open_nif(reference(), string(), config()) -> {ok, connection()} | {error, term()}.
-conn_open_nif(_AsyncRef, _HomeDir, _Config) ->
+-spec conn_open_nif(reference(), string(), config(), config()) -> {ok, connection()} | {error, term()}.
+conn_open_nif(_AsyncRef, _HomeDir, _ConnectionConfig, _SessionConfig) ->
     ?nif_stub.
 
 -spec connection_close(connection()) -> ok | {error, term()}.

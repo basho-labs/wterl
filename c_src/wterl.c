@@ -154,32 +154,45 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_string(env, argv[0], args->homedir, sizeof args->homedir, ERL_NIF_LATIN1) &&
-          enif_is_binary(env, argv[1]) &&
-          enif_is_binary(env, argv[2]))) {
+          (enif_is_binary(env, argv[1]) || argv[1] == 0) &&
+          (enif_is_binary(env, argv[2]) || argv[2] == 0))) {
       ASYNC_NIF_RETURN_BADARG();
     }
-    args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
-    args->session_config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    if (argv[1])
+        args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    else
+        args->config = 0;
+    if (argv[2])
+        args->session_config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+    else
+        args->session_config = 0;
   },
   { // work
 
     WT_CONNECTION *conn;
     ErlNifBinary config;
     ErlNifBinary session_config;
-    if (!enif_inspect_binary(env, args->config, &config)) {
-      ASYNC_NIF_REPLY(enif_make_badarg(env));
-      return;
+    if (args->config) {
+        if (!enif_inspect_binary(env, args->config, &config)) {
+            ASYNC_NIF_REPLY(enif_make_badarg(env));
+            return;
+        }
     }
-    if (!enif_inspect_binary(env, args->session_config, &session_config)) {
-      ASYNC_NIF_REPLY(enif_make_badarg(env));
-      return;
+    if (args->session_config) {
+        if (!enif_inspect_binary(env, args->session_config, &session_config)) {
+            ASYNC_NIF_REPLY(enif_make_badarg(env));
+            return;
+        }
     }
 
-    int rc = wiredtiger_open(args->homedir, NULL, (const char*)config.data, &conn);
+    int rc = wiredtiger_open(args->homedir, NULL, args->config ? (const char*)config.data : NULL, &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
       conn_handle->conn = conn;
-      conn_handle->session_config = (const char *)strndup((const char *)config.data, config.size);
+      if (args->session_config)
+          conn_handle->session_config = (const char *)strndup((const char *)session_config.data, session_config.size);
+      else
+          conn_handle->session_config = NULL;
       conn_handle->num_contexts = 0;
       bzero(conn_handle->contexts, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
       conn_handle->context_mutex = enif_mutex_create(NULL);
@@ -1563,7 +1576,8 @@ __resource_conn_dtor(ErlNifEnv *env, void *obj)
     bzero(conn_handle->contexts, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
     enif_mutex_unlock(conn_handle->context_mutex);
     enif_mutex_destroy(conn_handle->context_mutex);
-    free((void *)conn_handle->session_config);
+    if (conn_handle->session_config)
+        free((void *)conn_handle->session_config);
 }
 
 /**
@@ -1618,7 +1632,7 @@ static ErlNifFunc nif_funcs[] =
 {
     {"checkpoint_nif", 3, wterl_checkpoint},
     {"conn_close_nif", 2, wterl_conn_close},
-    {"conn_open_nif", 3, wterl_conn_open},
+    {"conn_open_nif", 4, wterl_conn_open},
     {"create_nif", 5, wterl_create},
     {"delete_nif", 4, wterl_delete},
     {"drop_nif", 4, wterl_drop},

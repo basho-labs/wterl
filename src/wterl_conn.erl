@@ -30,7 +30,7 @@
 
 %% API
 -export([start_link/0, stop/0,
-         open/1, open/2, is_open/0, get/0, close/1]).
+         open/1, open/2, open/3, is_open/0, get/0, close/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -53,12 +53,14 @@ stop() ->
     gen_server:cast(?MODULE, stop).
 
 -spec open(string()) -> {ok, wterl:connection()} | {error, term()}.
-open(Dir) ->
-    open(Dir, []).
-
 -spec open(string(), config_list()) -> {ok, wterl:connection()} | {error, term()}.
-open(Dir, Config) ->
-    gen_server:call(?MODULE, {open, Dir, Config, self()}, infinity).
+-spec open(string(), config_list(), config_list()) -> {ok, wterl:connection()} | {error, term()}.
+open(Dir) ->
+    open(Dir, [], []).
+open(Dir, ConnectionConfig) ->
+    gen_server:call(?MODULE, {open, Dir, ConnectionConfig, [], self()}, infinity).
+open(Dir, ConnectionConfig, SessionConfig) ->
+    gen_server:call(?MODULE, {open, Dir, ConnectionConfig, SessionConfig, self()}, infinity).
 
 -spec is_open() -> boolean().
 is_open() ->
@@ -80,9 +82,9 @@ init([]) ->
     true = wterl_ets:table_ready(),
     {ok, #state{}}.
 
-handle_call({open, Dir, Config, Caller}, _From, #state{conn=undefined}=State) ->
+handle_call({open, Dir, ConnectionConfig, SessionConfig, Caller}, _From, #state{conn=undefined}=State) ->
     {Reply, NState} =
-	case wterl:connection_open(Dir, wterl:config_to_bin(Config)) of
+	case wterl:connection_open(Dir, ConnectionConfig, SessionConfig) of
 	    {ok, ConnRef}=OK ->
 		Monitor = erlang:monitor(process, Caller),
 		true = ets:insert(wterl_ets, {Monitor, Caller}),
