@@ -149,7 +149,7 @@ async_nif_worker_fn(void *arg)
   struct async_nif_state *async_nif = wi->async_nif;
   unsigned int worker_id = wi->worker_id;
 
-  free(wi); // Allocated when starting the thread, now no longer needed.
+  free(arg); // Allocated when starting the thread, now no longer needed.
 
   /*
    * Workers are active while there is work on the queue to do and
@@ -222,7 +222,7 @@ static void async_nif_unload(ErlNifEnv *env)
   enif_mutex_unlock(async_nif->req_mutex);
 
   /* Join for the now exiting worker threads. */
-  for (i = 0; i < ASYNC_NIF_MAX_WORKERS; ++i) {
+  for (i = 0; i < async_nif->num_workers; ++i) {
     void *exit_value = 0; /* Ignore this. */
     enif_thread_join(async_nif->worker_entries[i].tid, &exit_value);
   }
@@ -303,7 +303,7 @@ async_nif_load(void)
     wi->worker = &async_nif->worker_entries[i];
     wi->worker_id = i;
     if (enif_thread_create(NULL, &async_nif->worker_entries[i].tid,
-                            &async_nif_worker_fn, (void*)&wi, NULL) != 0) {
+                            &async_nif_worker_fn, (void*)wi, NULL) != 0) {
       async_nif->shutdown = 1;
       enif_cond_broadcast(async_nif->cnd);
       enif_mutex_unlock(async_nif->worker_mutex);

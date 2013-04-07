@@ -93,9 +93,10 @@ start(Partition, Config) ->
         end,
     case AppStart of
         ok ->
-	    %% TODO: on failure to open a table try to verify, and then salvage it
-	    %% if the cluster size > the n value
             Table = "lsm:wt" ++ integer_to_list(Partition),
+            %% TODO: open, create, or open/verify
+	    %% on failure to open a table try to verify, and then salvage it
+	    %% if the cluster size > the n value
             {ok, Connection} = establish_connection(Config),
             case wterl:cursor_open(Connection, Table) of
                 {ok, IsEmptyCursor} ->
