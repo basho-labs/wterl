@@ -52,6 +52,7 @@
          salvage/3,
          truncate/2,
          truncate/3,
+         truncate/4,
          truncate/5,
          upgrade/2,
          upgrade/3,
@@ -211,11 +212,14 @@ checkpoint_nif(_AsyncRef, _Ref, _Config) ->
 
 -spec truncate(connection(), string()) -> ok | {error, term()}.
 -spec truncate(connection(), string(), config_list()) -> ok | {error, term()}.
--spec truncate(connection(), string(), cursor() | first, cursor() | last, config()) -> ok | {error, term()}.
+-spec truncate(connection(), string(), binary() | first, binary() | last) -> ok | {error, term()}.
+-spec truncate(connection(), string(), binary() | first, binary() | last, config()) -> ok | {error, term()}.
 truncate(Ref, Name) ->
     truncate(Ref, Name, first, last, []).
 truncate(Ref, Name, Config) ->
     truncate(Ref, Name, first, last, Config).
+truncate(Ref, Name, Start, Stop) ->
+    truncate(Ref, Name, Start, Stop, []).
 truncate(Ref, Name, Start, Stop, Config) ->
     ?ASYNC_NIF_CALL(fun truncate_nif/6, [Ref, Name, Start, Stop, config_to_bin(Config)]).
 
@@ -535,19 +539,19 @@ conn_test_() ->
                {"create, verify, drop a table(btree)",
                 fun() ->
                         ConnRef = open_test_table(ConnRef),
-                        ?assertMatch(ok, verify(ConnRef, "table:test"))
+                        ?assertMatch(ok, verify(ConnRef, "table:test")),
                         ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end},
                {"create, test verify, drop a table(lsm)",
                 fun() ->
                         ConnRef = open_test_table(ConnRef, "lsm"),
-                        ?assertMatch(ok, verify(ConnRef, "lsm:test"))
+                        ?assertMatch(ok, verify(ConnRef, "lsm:test")),
                         ?assertMatch(ok, drop(ConnRef, "lsm:test"))
                 end},
                {"create, verify, drop a table(btree, snappy)",
                 fun() ->
                         ConnRef = open_test_table(ConnRef, "table", [{block_compressor, "snappy"}]),
-                        ?assertMatch(ok, verify(ConnRef, "table:test"))
+                        ?assertMatch(ok, verify(ConnRef, "table:test")),
                         ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end}]}
      end}.
@@ -559,6 +563,7 @@ insert_delete_test() ->
     ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
     ?assertMatch(ok, delete(ConnRef, "table:test", <<"a">>)),
     ?assertMatch(not_found,  get(ConnRef, "table:test", <<"a">>)),
+    ?assertMatch(ok, drop(ConnRef, "table:test")),
     ok = connection_close(ConnRef).
 
 init_test_table() ->
@@ -568,56 +573,81 @@ init_test_table() ->
     ?assertMatch(ok, put(ConnRef, "table:test", <<"b">>, <<"banana">>)),
     ?assertMatch(ok, put(ConnRef, "table:test", <<"c">>, <<"cherry">>)),
     ?assertMatch(ok, put(ConnRef, "table:test", <<"d">>, <<"date">>)),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"e">>, <<"elephant">>)),
+    ?assertMatch(ok, put(ConnRef, "table:test", <<"f">>, <<"forest">>)),
     ?assertMatch(ok, put(ConnRef, "table:test", <<"g">>, <<"gooseberry">>)),
     ConnRef.
 
 stop_test_table(ConnRef) ->
     ?assertMatch(ok, connection_close(ConnRef)).
 
-various_session_test_() ->
+various_test_() ->
     {setup,
      fun init_test_table/0,
      fun stop_test_table/1,
      fun(ConnRef) ->
              {inorder,
-              [{"session verify",
+              [{"verify",
                 fun() ->
                         ?assertMatch(ok, verify(ConnRef, "table:test")),
-                        ?assertMatch({ok, <<"apple">>},
-                                     get(ConnRef, "table:test", <<"a">>))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end},
-               {"session checkpoint",
+               {"checkpoint",
                 fun() ->
                         ?assertMatch(ok, checkpoint(ConnRef, [{target, ["\"table:test\""]}])),
-                        ?assertMatch({ok, <<"apple">>},
-				     get(ConnRef, "table:test", <<"a">>))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end},
-               {"session salvage",
+               {"salvage",
                 fun() ->
                         ok = salvage(ConnRef, "table:test"),
-                        {ok, <<"apple">>} = get(ConnRef, "table:test", <<"a">>)
+                        {ok, <<"apple">>} = get(ConnRef, "table:test", <<"a">>),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end},
-               {"session upgrade",
+               {"upgrade",
                 fun() ->
                         ?assertMatch(ok, upgrade(ConnRef, "table:test")),
-                        ?assertMatch({ok, <<"apple">>},
-                                     get(ConnRef, "table:test", <<"a">>))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end},
-               {"session rename",
+               {"rename",
                 fun() ->
-                        ?assertMatch(ok,
-                                     rename(ConnRef, "table:test", "table:new")),
-                        ?assertMatch({ok, <<"apple">>},
-                                     get(ConnRef, "table:new", <<"a">>)),
-                        ?assertMatch(ok,
-                                     rename(ConnRef, "table:new", "table:test")),
-                        ?assertMatch({ok, <<"apple">>},
-                                     get(ConnRef, "table:test", <<"a">>))
+                        ?assertMatch(ok, rename(ConnRef, "table:test", "table:new")),
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:new", <<"a">>)),
+                        ?assertMatch(ok, rename(ConnRef, "table:new", "table:test")),
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end},
-               {"session truncate",
+               {"truncate",
                 fun() ->
                         ?assertMatch(ok, truncate(ConnRef, "table:test")),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                end},
+               {"truncate range, found",
+                fun() ->
+                        ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, last)),
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                end},
+               {"truncate range, not_found",
+                fun() ->
+                        ?assertMatch(ok, truncate(ConnRef, "table:test", first, <<"b">>)),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                end},
+               {"truncate range, middle",
+                fun() ->
+                        ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, <<"f">>)),
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"b">>)),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"c">>)),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"d">>)),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"e">>)),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"f">>)),
+                        ?assertMatch({ok, <<"gooseberry">>}, get(ConnRef, "table:test", <<"g">>)),
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end}]}
      end}.
 

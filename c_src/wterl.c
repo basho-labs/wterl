@@ -175,7 +175,7 @@ ASYNC_NIF_DECL(
         ASYNC_NIF_REPLY(enif_make_badarg(env));
         return;
     }
-    fprintf(stderr, "c: %s\ns: %s\n", (char *)config.data, (char *)session_config.data); fflush(stderr);
+    //fprintf(stderr, "c: %s\ns: %s\n", (char *)config.data, (char *)session_config.data); fflush(stderr);
     int rc = wiredtiger_open(args->homedir, NULL, config.data[0] != 0 ? (const char*)config.data : NULL, &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
