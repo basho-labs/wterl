@@ -93,15 +93,23 @@ start(Partition, Config) ->
         end,
     case AppStart of
         ok ->
-            Table = "lsm:wt" ++ integer_to_list(Partition),
-            %% TODO: open, create, or open/verify
-	    %% on failure to open a table try to verify, and then salvage it
-	    %% if the cluster size > the n value
             {ok, Connection} = establish_connection(Config),
-            case wterl:cursor_open(Connection, Table) of
-                {ok, IsEmptyCursor} ->
-                    case wterl:cursor_open(Connection, Table) of
-                        {ok, StatusCursor} ->
+            Table = "lsm:wt" ++ integer_to_list(Partition),
+            TableOpts =
+                [{block_compressor, "snappy"},
+                 {internal_page_max, "128K"},
+                 {leaf_page_max, "128K"},
+                 {lsm_chunk_size, "25MB"},
+		 {lsm_bloom_newest, true},
+		 {lsm_bloom_oldest, true} ,
+                 {lsm_bloom_bit_count, 128},
+                 {lsm_bloom_hash_count, 64},
+                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
+                ],
+            case wterl:create(Connection, Table, TableOpts) of
+                ok ->
+                    case establish_utility_cursors(Connection, Table) of
+                        {ok, IsEmptyCursor, StatusCursor} ->
                             {ok, #state{table=Table, connection=Connection,
                                         is_empty_cursor=IsEmptyCursor,
                                         status_cursor=StatusCursor}};
@@ -110,9 +118,7 @@ start(Partition, Config) ->
                     end;
                 {error, Reason3} ->
                     {error, Reason3}
-            end;
-        {error, Reason4} ->
-            {error, Reason4}
+                end
     end.
 
 %% @doc Stop the wterl backend
@@ -177,7 +183,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{connection=Connection, table=Tabl
     BucketFolder =
         fun() ->
                 case wterl:cursor_open(Connection, Table) of
-                    {error, "No such file or directory"} ->
+                    {error, {enoent, _Message}} ->
                         Acc;
                     {ok, Cursor} ->
                         try
@@ -222,7 +228,7 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{connection=Connection, table=Table}) ->
     KeyFolder =
         fun() ->
                 case wterl:cursor_open(Connection, Table) of
-                    {error, "No such file or directory"} ->
+                    {error, {enoent, _Message}} ->
                         Acc;
                     {ok, Cursor} ->
                         try
@@ -253,7 +259,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{connection=Connection, table=Tabl
     ObjectFolder =
         fun() ->
                 case wterl:cursor_open(Connection, Table) of
-                    {error, "No such file or directory"} ->
+                    {error, {enoent, _Message}} ->
                         Acc;
                     {ok, Cursor} ->
                         try
@@ -315,6 +321,7 @@ callback(_Ref, _Msg, State) ->
 %% Internal functions
 %% ===================================================================
 
+%% @private
 max_sessions(Config) ->
     RingSize =
         case app_helper:get_prop_or_env(ring_creation_size, Config, riak_core) of
@@ -322,6 +329,20 @@ max_sessions(Config) ->
             Size -> Size
         end,
     2 * (RingSize * erlang:system_info(schedulers)).
+
+%% @private
+establish_utility_cursors(Connection, Table) ->
+    case wterl:cursor_open(Connection, Table) of
+        {ok, IsEmptyCursor} ->
+            case wterl:cursor_open(Connection, Table) of
+                {ok, StatusCursor} ->
+                    {ok, IsEmptyCursor, StatusCursor};
+                {error, Reason1} ->
+                    {error, Reason1}
+            end;
+        {error, Reason2} ->
+            {error, Reason2}
+    end.
 
 %% @private
 establish_connection(Config) ->
@@ -353,17 +374,7 @@ establish_connection(Config) ->
                          ]) ] ++ proplists:get_value(wterl, Config, [])), % sec
 
             %% WT Session Options:
-            SessionOpts =
-                [{block_compressor, "snappy"},
-                 {internal_page_max, "128K"},
-                 {leaf_page_max, "128K"},
-                 {lsm_chunk_size, "25MB"},
-		 {lsm_bloom_newest, true},
-		 {lsm_bloom_oldest, true} ,
-                 {lsm_bloom_bit_count, 128},
-                 {lsm_bloom_hash_count, 64},
-                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
-                ],
+            SessionOpts = [{isolation, "snapshot"}],
 
             case wterl_conn:open(DataRoot, ConnectionOpts, SessionOpts) of
                 {ok, Connection} ->

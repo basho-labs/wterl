@@ -93,6 +93,20 @@ __session_for(WterlConnHandle *conn_handle, unsigned int worker_id, WT_SESSION *
     return 0;
 }
 
+void
+__close_all_sessions(WterlConnHandle *conn_handle)
+{
+    int i;
+    for (i = 0; i < conn_handle->num_contexts; i++) {
+        WterlCtx *ctx = &conn_handle->contexts[i];
+	kh_destroy(cursors, ctx->cursors);
+        ctx->session->close(ctx->session, NULL);
+        ctx->session = NULL;
+        ctx->cursors = NULL;
+    }
+}
+
+
 /**
  * Close cursors open on 'uri' object.
  *
@@ -151,7 +165,7 @@ __release_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const cha
 }
 
 /**
- * Convenience function to generate {error, Reason} or 'not_found'
+ * Convenience function to generate {error, {errno, Reason}} or 'not_found'
  * Erlang terms to return to callers.
  *
  * env    NIF environment
@@ -163,8 +177,13 @@ __strerror_term(ErlNifEnv* env, int rc)
     if (rc == WT_NOTFOUND) {
 	return ATOM_NOT_FOUND;
     } else {
+        /* TODO: The string for the error message provided by strerror() for
+           any given errno value may be different across platforms, return
+           {atom, string} and may have been localized too. */
 	return enif_make_tuple2(env, ATOM_ERROR,
-				enif_make_string(env, wiredtiger_strerror(rc), ERL_NIF_LATIN1));
+                                enif_make_tuple2(env,
+                                                 enif_make_atom(env, erl_errno_id(rc)),
+                                                 enif_make_string(env, wiredtiger_strerror(rc), ERL_NIF_LATIN1)));
     }
 }
 
@@ -312,8 +331,8 @@ ASYNC_NIF_DECL(
     }
 
     rc = session->create(session, args->uri, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -377,9 +396,9 @@ ASYNC_NIF_DECL(
     // variable (read: punt for now, expect a lot of EBUSYs)
 
     rc = session->drop(session, args->uri, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->context_mutex);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -442,9 +461,9 @@ ASYNC_NIF_DECL(
        operation will fail with EBUSY(16) "Device or resource busy". */
     // TODO: see drop's note, same goes here.
     rc = session->rename(session, args->oldname, args->newname, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->context_mutex);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -504,9 +523,9 @@ ASYNC_NIF_DECL(
     }
 
     rc = session->salvage(session, args->uri, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->context_mutex);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -620,12 +639,12 @@ ASYNC_NIF_DECL(
     }
 
     ErlNifBinary start_key;
-    if (!enif_inspect_binary(env, args->start, &start_key)) {
-      ASYNC_NIF_REPLY(enif_make_badarg(env));
-      return;
-    }
     WT_CURSOR *start = NULL;
     if (!enif_is_atom(env, args->start)) {
+        if (!enif_inspect_binary(env, args->start, &start_key)) {
+            ASYNC_NIF_REPLY(enif_make_badarg(env));
+            return;
+        }
 	rc = session->open_cursor(session, args->uri, NULL, "raw", &start);
 	if (rc != 0) {
 	    ASYNC_NIF_REPLY(__strerror_term(env, rc));
@@ -639,12 +658,12 @@ ASYNC_NIF_DECL(
     }
 
     ErlNifBinary stop_key;
-    if (!enif_inspect_binary(env, args->stop, &stop_key)) {
-      ASYNC_NIF_REPLY(enif_make_badarg(env));
-      return;
-    }
     WT_CURSOR *stop = NULL;
     if (!enif_is_atom(env, args->stop)) {
+        if (!enif_inspect_binary(env, args->stop, &stop_key)) {
+            ASYNC_NIF_REPLY(enif_make_badarg(env));
+            return;
+        }
 	rc = session->open_cursor(session, args->uri, NULL, "raw", &stop);
 	if (rc != 0) {
 	    ASYNC_NIF_REPLY(__strerror_term(env, rc));
@@ -658,8 +677,9 @@ ASYNC_NIF_DECL(
     }
 
     rc = session->truncate(session, args->uri, start, stop, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
+    (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->context_mutex);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -716,9 +736,9 @@ ASYNC_NIF_DECL(
     }
 
     rc = session->upgrade(session, args->uri, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->context_mutex);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -756,7 +776,7 @@ ASYNC_NIF_DECL(
 
     /* This call requires that there be no open cursors referencing the object. */
     enif_mutex_lock(args->conn_handle->context_mutex);
-    __close_cursors_on(args->conn_handle, args->uri);
+    __close_all_sessions(args->conn_handle);
 
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
@@ -776,9 +796,9 @@ ASYNC_NIF_DECL(
     }
 
     rc = session->verify(session, args->uri, (const char*)config.data);
-    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->context_mutex);
+    ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
 
@@ -1046,8 +1066,7 @@ ASYNC_NIF_DECL(
       return;
     }
 
-    WterlCursorHandle* cursor_handle =
-	enif_alloc_resource(wterl_cursor_RESOURCE, sizeof(WterlCursorHandle));
+    WterlCursorHandle* cursor_handle = enif_alloc_resource(wterl_cursor_RESOURCE, sizeof(WterlCursorHandle));
     cursor_handle->session = session;
     cursor_handle->cursor = cursor;
     ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);
@@ -1080,10 +1099,12 @@ ASYNC_NIF_DECL(
   },
   { // work
 
-    WT_SESSION* session = args->cursor_handle->session;
+    WT_CURSOR *cursor = args->cursor_handle->cursor;
+    WT_SESSION *session = args->cursor_handle->session;
     /* Note: session->close() will cause all open cursors in the session to be
        closed first, so we don't have explicitly to do that here. */
-    int rc = session->close(session, NULL);
+    int rc = cursor->close(cursor);
+    (void)session->close(session, NULL);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -1618,7 +1639,6 @@ __resource_conn_dtor(ErlNifEnv *env, void *obj)
 	kh_destroy(cursors, ctx->cursors);
 	ctx->session->close(ctx->session, NULL);
     }
-    bzero(conn_handle->contexts, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
     enif_mutex_unlock(conn_handle->context_mutex);
     enif_mutex_destroy(conn_handle->context_mutex);
     if (conn_handle->session_config)
