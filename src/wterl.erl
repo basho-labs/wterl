@@ -20,7 +20,9 @@
 %%
 %% -------------------------------------------------------------------
 -module(wterl).
+
 -export([connection_open/2,
+         connection_open/3,
          connection_close/1,
          cursor_close/1,
          cursor_insert/3,
@@ -88,11 +90,9 @@
 nif_stub_error(Line) ->
     erlang:nif_error({nif_not_loaded,module,?MODULE,line,Line}).
 
--define(EMPTY_CONFIG, <<"\0">>).
-
 -spec init() -> ok | {error, any()}.
 init() ->
-    erlang:load_nif(filename:join(priv_dir(), atom_to_list(?MODULE)),
+    erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
 		    [{wterl, "163a5073cb85db2a270ebe904e788bd8d478ea1c"},
 		     {wiredtiger, "e9a607b1b78ffa528631519b5cb6ac944468991e"}]).
 
@@ -110,7 +110,7 @@ connection_open(HomeDir, ConnectionConfig, SessionConfig) ->
 				 nomatch -> false
 			     end
 		     end, PrivFiles),
-    SoPaths = lists:map(fun(Elem) -> filename:join(PrivDir, Elem) end, SoFiles),
+    SoPaths = lists:map(fun(Elem) -> filename:join([PrivDir, Elem]) end, SoFiles),
     conn_open(HomeDir, [{extensions, SoPaths}] ++ ConnectionConfig, SessionConfig).
 
 -spec conn_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -389,50 +389,14 @@ priv_dir() ->
 	{error, bad_name} ->
 	    EbinDir = filename:dirname(code:which(?MODULE)),
 	    AppPath = filename:dirname(EbinDir),
-	    filename:join(AppPath, "priv");
+	    filename:join([AppPath, "priv"]);
 	Path ->
 	    Path
     end.
 
 %%
-%% Configuration type information.
+%% Configuration information.
 %%
-config_types() ->
-    [{block_compressor, {string, quoted}},
-     {cache_size, string},
-     {checkpoint, config},
-     {create, bool},
-     {direct_io, list},
-     {drop, list},
-     {error_prefix, string},
-     {eviction_target, integer},
-     {eviction_trigger, integer},
-     {extensions, {list, quoted}},
-     {force, bool},
-     {hazard_max, integer},
-     {home_environment, bool},
-     {home_environment_priv, bool},
-     {internal_page_max, string},
-     {isolation, string},
-     {key_type, string},
-     {leaf_page_max, string},
-     {logging, bool},
-     {lsm_bloom_bit_count, integer},
-     {lsm_bloom_config, config},
-     {lsm_bloom_hash_count, integer},
-     {lsm_bloom_newest, bool},
-     {lsm_bloom_oldest, bool},
-     {lsm_chunk_size, string},
-     {lsm_merge_threads, integer},
-     {multiprocess, bool},
-     {name, string},
-     {session_max, integer},
-     {statistics_log, config},
-     {sync, bool},
-     {target, list},
-     {transactional, bool},
-     {verbose, list},
-     {wait, integer}].
 
 config_value(Key, Config, Default) ->
     {Key, app_helper:get_prop_or_env(Key, Config, wterl, Default)}.
@@ -478,7 +442,44 @@ config_to_bin(Opts) ->
 config_to_bin([], Acc) ->
     iolist_to_binary(Acc);
 config_to_bin([{Key, Value} | Rest], Acc) ->
-    case lists:keysearch(Key, 1, config_types()) of
+    ConfigTypes =
+    [{block_compressor, {string, quoted}},
+     {cache_size, string},
+     {checkpoint, config},
+     {create, bool},
+     {direct_io, list},
+     {drop, list},
+     {error_prefix, string},
+     {eviction_target, integer},
+     {eviction_trigger, integer},
+     {extensions, {list, quoted}},
+     {force, bool},
+     {hazard_max, integer},
+     {home_environment, bool},
+     {home_environment_priv, bool},
+     {internal_page_max, string},
+     {isolation, string},
+     {key_type, string},
+     {leaf_page_max, string},
+     {logging, bool},
+     {lsm_bloom_bit_count, integer},
+     {lsm_bloom_config, config},
+     {lsm_bloom_hash_count, integer},
+     {lsm_bloom_newest, bool},
+     {lsm_bloom_oldest, bool},
+     {lsm_chunk_size, string},
+     {lsm_merge_threads, integer},
+     {multiprocess, bool},
+     {name, string},
+     {session_max, integer},
+     {statistics_log, config},
+     {sync, bool},
+     {target, list},
+     {transactional, bool},
+     {verbose, list},
+     {wait, integer}],
+
+    case lists:keysearch(Key, 1, ConfigTypes) of
         {value, {Key, Type}} ->
             Acc2 = case config_encode(Type, Value) of
                        invalid ->
@@ -501,15 +502,35 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 %% ===================================================================
 -ifdef(TEST).
 
+-include_lib("kernel/include/file.hrl").
+
+remove_dir_tree(Dir) ->
+    remove_all_files(".", [Dir]).
+
+remove_all_files(Dir, Files) ->
+    lists:foreach(fun(File) ->
+                          FilePath = filename:join([Dir, File]),
+                          {ok, FileInfo} = file:read_file_info(FilePath),
+                          case FileInfo#file_info.type of
+                              directory ->
+                                  {ok, DirFiles} = file:list_dir(FilePath), 
+                                  remove_all_files(FilePath, DirFiles),
+                                  file:del_dir(FilePath);
+                              _ ->
+                                  file:delete(FilePath)
+                          end
+                  end, Files).
+
 -define(TEST_DATA_DIR, "test/wterl.basic").
 
 open_test_conn(DataDir) ->
+    open_test_conn(DataDir, [{create,true},{cache_size,"100MB"}]).
+open_test_conn(DataDir, OpenConfig) ->
     {ok, CWD} = file:get_cwd(),
     ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
-    ?cmd("rm -rf "++DataDir),
-    ?assertMatch(ok, filelib:ensure_dir(filename:join(DataDir, "x"))),
-    OpenConfig = [{create,true},{cache_size,"100MB"}],
-    {ok, ConnRef} = connection_open(DataDir, OpenConfig),
+    ?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
+    ?assertMatch(ok, filelib:ensure_dir(filename:join([DataDir, "x"]))),
+    {ok, ConnRef} = connection_open(filename:join([CWD, DataDir]), OpenConfig),
     ConnRef.
 
 open_test_table(ConnRef) ->
@@ -563,7 +584,6 @@ insert_delete_test() ->
     ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
     ?assertMatch(ok, delete(ConnRef, "table:test", <<"a">>)),
     ?assertMatch(not_found,  get(ConnRef, "table:test", <<"a">>)),
-    ?assertMatch(ok, drop(ConnRef, "table:test")),
     ok = connection_close(ConnRef).
 
 init_test_table() ->
@@ -587,55 +607,48 @@ various_test_() ->
      fun stop_test_table/1,
      fun(ConnRef) ->
              {inorder,
-              [{"verify",
-                fun() ->
-                        ?assertMatch(ok, verify(ConnRef, "table:test")),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
-                end},
+              [
                {"checkpoint",
                 fun() ->
                         ?assertMatch(ok, checkpoint(ConnRef, [{target, ["\"table:test\""]}])),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
+                end},
+               {"verify",
+                fun() ->
+                        ?assertMatch(ok, verify(ConnRef, "table:test")),
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
                 end},
                {"salvage",
                 fun() ->
                         ok = salvage(ConnRef, "table:test"),
-                        {ok, <<"apple">>} = get(ConnRef, "table:test", <<"a">>),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        {ok, <<"apple">>} = get(ConnRef, "table:test", <<"a">>)
                 end},
                {"upgrade",
                 fun() ->
                         ?assertMatch(ok, upgrade(ConnRef, "table:test")),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
                 end},
                {"rename",
                 fun() ->
                         ?assertMatch(ok, rename(ConnRef, "table:test", "table:new")),
                         ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:new", <<"a">>)),
                         ?assertMatch(ok, rename(ConnRef, "table:new", "table:test")),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
                 end},
                {"truncate",
                 fun() ->
                         ?assertMatch(ok, truncate(ConnRef, "table:test")),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
                 end},
                {"truncate range, found",
                 fun() ->
                         ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, last)),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
                 end},
                {"truncate range, not_found",
                 fun() ->
                         ?assertMatch(ok, truncate(ConnRef, "table:test", first, <<"b">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
                 end},
                {"truncate range, middle",
                 fun() ->
@@ -646,9 +659,13 @@ various_test_() ->
                         ?assertMatch(not_found, get(ConnRef, "table:test", <<"d">>)),
                         ?assertMatch(not_found, get(ConnRef, "table:test", <<"e">>)),
                         ?assertMatch(not_found, get(ConnRef, "table:test", <<"f">>)),
-                        ?assertMatch({ok, <<"gooseberry">>}, get(ConnRef, "table:test", <<"g">>)),
+                        ?assertMatch({ok, <<"gooseberry">>}, get(ConnRef, "table:test", <<"g">>))
+                end},
+               {"drop table",
+                fun() ->
                         ?assertMatch(ok, drop(ConnRef, "table:test"))
-                end}]}
+                end}
+              ]}
      end}.
 
 cursor_open_close_test() ->
@@ -676,6 +693,8 @@ various_cursor_test_() ->
                         ?assertMatch({ok, <<"d">>}, cursor_next_key(Cursor)),
                         ?assertMatch({ok, <<"c">>}, cursor_prev_key(Cursor)),
                         ?assertMatch({ok, <<"d">>}, cursor_next_key(Cursor)),
+                        ?assertMatch({ok, <<"e">>}, cursor_next_key(Cursor)),
+                        ?assertMatch({ok, <<"f">>}, cursor_next_key(Cursor)),
                         ?assertMatch({ok, <<"g">>}, cursor_next_key(Cursor)),
                         ?assertMatch(not_found, cursor_next_key(Cursor)),
                         ?assertMatch(ok, cursor_close(Cursor))
@@ -689,6 +708,8 @@ various_cursor_test_() ->
                         ?assertMatch({ok, <<"date">>}, cursor_next_value(Cursor)),
                         ?assertMatch({ok, <<"cherry">>}, cursor_prev_value(Cursor)),
                         ?assertMatch({ok, <<"date">>}, cursor_next_value(Cursor)),
+                        ?assertMatch({ok, <<"elephant">>}, cursor_next_value(Cursor)),
+                        ?assertMatch({ok, <<"forest">>}, cursor_next_value(Cursor)),
                         ?assertMatch({ok, <<"gooseberry">>}, cursor_next_value(Cursor)),
                         ?assertMatch(not_found, cursor_next_value(Cursor)),
                         ?assertMatch(ok, cursor_close(Cursor))
@@ -702,6 +723,8 @@ various_cursor_test_() ->
                         ?assertMatch({ok, <<"d">>, <<"date">>}, cursor_next(Cursor)),
                         ?assertMatch({ok, <<"c">>, <<"cherry">>}, cursor_prev(Cursor)),
                         ?assertMatch({ok, <<"d">>, <<"date">>}, cursor_next(Cursor)),
+                        ?assertMatch({ok, <<"e">>, <<"elephant">>}, cursor_next(Cursor)),
+                        ?assertMatch({ok, <<"f">>, <<"forest">>}, cursor_next(Cursor)),
                         ?assertMatch({ok, <<"g">>, <<"gooseberry">>}, cursor_next(Cursor)),
                         ?assertMatch(not_found, cursor_next(Cursor)),
                         ?assertMatch(ok, cursor_close(Cursor))
@@ -709,7 +732,7 @@ various_cursor_test_() ->
                {"fold keys",
                 fun() ->
                         {ok, Cursor} = cursor_open(ConnRef, "table:test"),
-                        ?assertMatch([<<"g">>, <<"d">>, <<"c">>, <<"b">>, <<"a">>],
+                        ?assertMatch([<<"g">>, <<"f">>, <<"e">>, <<"d">>, <<"c">>, <<"b">>, <<"a">>],
                                      fold_keys(Cursor, fun(Key, Acc) -> [Key | Acc] end, [])),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
@@ -722,8 +745,7 @@ various_cursor_test_() ->
                {"range search for an item",
                 fun() ->
                         {ok, Cursor} = cursor_open(ConnRef, "table:test"),
-                        ?assertMatch({ok, <<"gooseberry">>},
-                                     cursor_search_near(Cursor, <<"z">>)),
+                        ?assertMatch({ok, <<"gooseberry">>}, cursor_search_near(Cursor, <<"z">>)),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
                {"check cursor reset",
@@ -737,30 +759,21 @@ various_cursor_test_() ->
                {"insert/overwrite an item using a cursor",
                 fun() ->
                         {ok, Cursor} = cursor_open(ConnRef, "table:test"),
-                        ?assertMatch(ok,
-                                     cursor_insert(Cursor, <<"h">>, <<"huckleberry">>)),
-                        ?assertMatch({ok, <<"huckleberry">>},
-                                     cursor_search(Cursor, <<"h">>)),
-                        ?assertMatch(ok,
-                                     cursor_insert(Cursor, <<"g">>, <<"grapefruit">>)),
-                        ?assertMatch({ok, <<"grapefruit">>},
-                                     cursor_search(Cursor, <<"g">>)),
+                        ?assertMatch(ok, cursor_insert(Cursor, <<"h">>, <<"huckleberry">>)),
+                        ?assertMatch({ok, <<"huckleberry">>}, cursor_search(Cursor, <<"h">>)),
+                        ?assertMatch(ok, cursor_insert(Cursor, <<"g">>, <<"grapefruit">>)),
+                        ?assertMatch({ok, <<"grapefruit">>}, cursor_search(Cursor, <<"g">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
-                        ?assertMatch({ok, <<"grapefruit">>},
-                                     get(ConnRef, "table:test", <<"g">>)),
-                        ?assertMatch({ok, <<"huckleberry">>},
-                                     get(ConnRef, "table:test", <<"h">>))
+                        ?assertMatch({ok, <<"grapefruit">>}, get(ConnRef, "table:test", <<"g">>)),
+                        ?assertMatch({ok, <<"huckleberry">>}, get(ConnRef, "table:test", <<"h">>))
                 end},
                {"update an item using a cursor",
                 fun() ->
                         {ok, Cursor} = cursor_open(ConnRef, "table:test"),
-                        ?assertMatch(ok,
-                                     cursor_update(Cursor, <<"g">>, <<"goji berries">>)),
-                        ?assertMatch(not_found,
-                                     cursor_update(Cursor, <<"k">>, <<"kumquat">>)),
+                        ?assertMatch(ok, cursor_update(Cursor, <<"g">>, <<"goji berries">>)),
+                        ?assertMatch(not_found, cursor_update(Cursor, <<"k">>, <<"kumquat">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
-                        ?assertMatch({ok, <<"goji berries">>},
-                                     get(ConnRef, "table:test", <<"g">>))
+                        ?assertMatch({ok, <<"goji berries">>}, get(ConnRef, "table:test", <<"g">>))
                 end},
                {"remove an item using a cursor",
                 fun() ->
@@ -811,7 +824,7 @@ prop_put_delete() ->
 		     {ok, CWD} = file:get_cwd(),
 		     ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
                      ?cmd("rm -rf "++DataDir),
-                     ok = filelib:ensure_dir(filename:join(DataDir, "x")),
+                     ok = filelib:ensure_dir(filename:join([DataDir, "x"])),
                      {ok, Conn} = wterl:connection_open(DataDir, [{create,true}]),
                      try
                          wterl:create(ConnRef, Table),

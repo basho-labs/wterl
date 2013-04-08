@@ -93,7 +93,7 @@ handle_call({open, Dir, ConnectionConfig, SessionConfig, Caller}, _From, #state{
 		{Error, State}
 	end,
     {reply, Reply, NState};
-handle_call({open, _Dir, _Config, Caller}, _From,#state{conn=ConnRef}=State) ->
+handle_call({open, _Dir, _ConnectionConfig, _SessionConfig, Caller}, _From, #state{conn=ConnRef}=State) ->
     Monitor = erlang:monitor(process, Caller),
     true = ets:insert(wterl_ets, {Monitor, Caller}),
     {reply, {ok, ConnRef}, State};

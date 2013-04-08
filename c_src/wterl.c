@@ -81,14 +81,38 @@ __session_for(WterlConnHandle *conn_handle, unsigned int worker_id, WT_SESSION *
     *session = ctx->session;
     if (*session == NULL) {
 	/* Create a context for this worker thread to reuse. */
+        enif_mutex_lock(conn_handle->context_mutex);
 	WT_CONNECTION *conn = conn_handle->conn;
 	int rc = conn->open_session(conn, NULL, conn_handle->session_config, session);
 	if (rc != 0)
 	    return rc;
 	ctx->session = *session;
 	ctx->cursors = kh_init(cursors);
+        enif_mutex_unlock(conn_handle->context_mutex);
     }
     return 0;
+}
+
+/**
+ * Close cursors open on 'uri' object.
+ *
+ * Note: always call within enif_mutex_lock/unlock(conn_handle->context_mutex)
+ */
+void
+__close_cursors_on(WterlConnHandle *conn_handle, const char *uri) // TODO: race?
+{
+    int i;
+    for (i = 0; i < conn_handle->num_contexts; i++) {
+        WterlCtx *ctx = &conn_handle->contexts[i];
+        khash_t(cursors) *h = ctx->cursors;
+        khiter_t itr = kh_get(cursors, h, uri);
+        if (itr != kh_end(h)) {
+            WT_CURSOR *cursor = (WT_CURSOR*)kh_value(h, itr);
+            kh_del(cursors, h, itr);
+            cursor->close(cursor);
+            //fprintf(stderr, "closing worker_id: %d 0x%p %s\n", i, cursor, uri); fflush(stderr);
+        }
+    }
 }
 
 /**
@@ -96,8 +120,9 @@ __session_for(WterlConnHandle *conn_handle, unsigned int worker_id, WT_SESSION *
  * session.
  */
 static int
-__cursor_for(WterlConnHandle *conn_handle, unsigned int worker_id, const char *uri, WT_CURSOR **cursor)
+__retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char *uri, WT_CURSOR **cursor)
 {
+    /* Check to see if we have a cursor open for this uri and if so reuse it. */
     WterlCtx *ctx = &conn_handle->contexts[worker_id];
     khash_t(cursors) *h = ctx->cursors;
     khiter_t itr = kh_get(cursors, h, uri);
@@ -106,6 +131,7 @@ __cursor_for(WterlConnHandle *conn_handle, unsigned int worker_id, const char *u
 	*cursor = (WT_CURSOR*)kh_value(h, itr);
     } else {
 	// key does not exist in hash table, create and insert one
+        enif_mutex_lock(conn_handle->context_mutex);
 	WT_SESSION *session = conn_handle->contexts[worker_id].session;
 	int rc = session->open_cursor(session, uri, NULL, "overwrite,raw", cursor);
 	if (rc != 0)
@@ -113,8 +139,15 @@ __cursor_for(WterlConnHandle *conn_handle, unsigned int worker_id, const char *u
         int itr_status;
         itr = kh_put(cursors, h, uri, &itr_status);
 	kh_value(h, itr) = *cursor;
+        enif_mutex_unlock(conn_handle->context_mutex);
     }
     return 0;
+}
+
+static void
+__release_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char *uri, WT_CURSOR *cursor)
+{
+    cursor->reset(cursor);
 }
 
 /**
@@ -315,6 +348,10 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* This call requires that there be no open cursors referencing the object. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_cursors_on(args->conn_handle, args->uri);
+
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
@@ -342,6 +379,7 @@ ASYNC_NIF_DECL(
     rc = session->drop(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
+    enif_mutex_unlock(args->conn_handle->context_mutex);
   },
   { // post
 
@@ -379,6 +417,10 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* This call requires that there be no open cursors referencing the object. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_cursors_on(args->conn_handle, args->oldname);
+
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
@@ -402,6 +444,7 @@ ASYNC_NIF_DECL(
     rc = session->rename(session, args->oldname, args->newname, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
+    enif_mutex_unlock(args->conn_handle->context_mutex);
   },
   { // post
 
@@ -439,6 +482,10 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* This call requires that there be no open cursors referencing the object. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_cursors_on(args->conn_handle, args->uri);
+
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
@@ -459,6 +506,7 @@ ASYNC_NIF_DECL(
     rc = session->salvage(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
+    enif_mutex_unlock(args->conn_handle->context_mutex);
   },
   { // post
 
@@ -549,6 +597,10 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* This call requires that there be no open cursors referencing the object. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_cursors_on(args->conn_handle, args->uri);
+
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
@@ -607,6 +659,7 @@ ASYNC_NIF_DECL(
 
     rc = session->truncate(session, args->uri, start, stop, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
+    enif_mutex_unlock(args->conn_handle->context_mutex);
   },
   { // post
 
@@ -641,6 +694,10 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* This call requires that there be no open cursors referencing the object. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_cursors_on(args->conn_handle, args->uri);
+
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
@@ -661,6 +718,7 @@ ASYNC_NIF_DECL(
     rc = session->upgrade(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
+    enif_mutex_unlock(args->conn_handle->context_mutex);
   },
   { // post
 
@@ -696,6 +754,10 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* This call requires that there be no open cursors referencing the object. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_cursors_on(args->conn_handle, args->uri);
+
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
@@ -716,6 +778,7 @@ ASYNC_NIF_DECL(
     rc = session->verify(session, args->uri, (const char*)config.data);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
     (void)session->close(session, NULL);
+    enif_mutex_unlock(args->conn_handle->context_mutex);
   },
   { // post
 
@@ -764,7 +827,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR *cursor = NULL;
-    rc = __cursor_for(args->conn_handle, worker_id, args->uri, &cursor);
+    rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
 	return;
@@ -776,7 +839,7 @@ ASYNC_NIF_DECL(
     cursor->set_key(cursor, &item_key);
     rc = cursor->remove(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
-    cursor->reset(cursor);
+    __release_cursor(args->conn_handle, worker_id, args->uri, cursor);
   },
   { // post
 
@@ -825,7 +888,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR *cursor = NULL;
-    rc = __cursor_for(args->conn_handle, worker_id, args->uri, &cursor);
+    rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
 	return;
@@ -851,7 +914,7 @@ ASYNC_NIF_DECL(
     unsigned char *bin = enif_make_new_binary(env, item_value.size, &value);
     memcpy(bin, item_value.data, item_value.size);
     ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, value));
-    cursor->reset(cursor);
+    __release_cursor(args->conn_handle, worker_id, args->uri, cursor);
   },
   { // post
 
@@ -909,7 +972,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR *cursor = NULL;
-    rc = __cursor_for(args->conn_handle, worker_id, args->uri, &cursor);
+    rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
 	return;
@@ -925,7 +988,7 @@ ASYNC_NIF_DECL(
     cursor->set_value(cursor, &item_value);
     rc = cursor->insert(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
-    cursor->reset(cursor);
+    __release_cursor(args->conn_handle, worker_id, args->uri, cursor);
   },
   { // post
 
@@ -969,6 +1032,7 @@ ASYNC_NIF_DECL(
     /* We create a separate session here to ensure that operations are thread safe. */
     WT_CONNECTION *conn = args->conn_handle->conn;
     WT_SESSION *session = NULL;
+    //fprintf(stderr, "cursor open: %s\n", (char *)args->conn_handle->session_config); fflush(stderr);
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
@@ -1541,10 +1605,10 @@ ASYNC_NIF_DECL(
 static void
 __resource_conn_dtor(ErlNifEnv *env, void *obj)
 {
+    int i;
     WterlConnHandle *conn_handle = (WterlConnHandle *)obj;
     /* Free up the shared sessions and cursors. */
     enif_mutex_lock(conn_handle->context_mutex);
-    int i;
     for (i = 0; i < conn_handle->num_contexts; i++) {
 	WterlCtx *ctx = &conn_handle->contexts[i]; 
 	WT_CURSOR *cursor;
@@ -1621,6 +1685,9 @@ static ErlNifFunc nif_funcs[] =
     {"put_nif", 5, wterl_put},
     {"rename_nif", 5, wterl_rename},
     {"salvage_nif", 4, wterl_salvage},
+    // TODO: {"txn_begin", 3, wterl_txn_begin},
+    // TODO: {"txn_commit", 3, wterl_txn_commit},
+    // TODO: {"txn_abort", 3, wterl_txn_abort},
     {"truncate_nif", 6, wterl_truncate},
     {"upgrade_nif", 4, wterl_upgrade},
     {"verify_nif", 4, wterl_verify},

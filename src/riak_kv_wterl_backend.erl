@@ -362,9 +362,10 @@ establish_connection(Config) ->
 		 {lsm_bloom_oldest, true} ,
                  {lsm_bloom_bit_count, 128},
                  {lsm_bloom_hash_count, 64},
-                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]}],
+                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
+                ],
 
-            case wterl_conn:open(DataRoot, SessionOpts, ConnectionOpts) of
+            case wterl_conn:open(DataRoot, ConnectionOpts, SessionOpts) of
                 {ok, Connection} ->
                     {ok, Connection};
                 {error, Reason2} ->
