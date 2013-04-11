@@ -618,13 +618,12 @@ various_online_test_() ->
                 fun() ->
                         ?assertMatch(ok, checkpoint(ConnRef, [{target, ["table:test"]}])),
                         ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
-                end}
-               %% ,
-               %% {"truncate",
-               %%  fun() ->
-               %%          ?assertMatch(ok, truncate(ConnRef, "table:test")),
-               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
-               %%  end},
+                end},
+               {"truncate",
+                fun() ->
+                        ?assertMatch(ok, truncate(ConnRef, "table:test")),
+                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
+                end},
                %% {"truncate range, found",
                %%  fun() ->
                %%          ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, last)),
@@ -646,10 +645,10 @@ various_online_test_() ->
                %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"f">>)),
                %%          ?assertMatch({ok, <<"gooseberry">>}, get(ConnRef, "table:test", <<"g">>))
                %%  end},
-               %% {"drop table",
-               %%  fun() ->
-               %%          ?assertMatch(ok, drop(ConnRef, "table:test"))
-               %%  end}
+               {"drop table",
+                fun() ->
+                        ?assertMatch(ok, drop(ConnRef, "table:test"))
+                end}
               ]}
      end}.
 

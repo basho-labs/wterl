@@ -20,9 +20,9 @@ case "$1" in
         if [ -d wiredtiger/.git ]; then
             (cd wiredtiger && \
                 git fetch && \
-                git merge origin/$WT_BRANCH)
+                git merge origin/${WT_BRANCH})
         else
-            git clone -b $WT_BRANCH --single-branch $WT_REMOTE_REPO && \
+            git clone -b ${WT_BRANCH} --single-branch ${WT_REMOTE_REPO} && \
             (cd wiredtiger && \
              patch -p1 < ../wiredtiger-extension-link.patch && \
              ./autogen.sh)
@@ -31,10 +31,10 @@ case "$1" in
             ../configure --with-pic \
                          --enable-snappy \
                          --enable-bzip2 \
-                         --prefix=$BASEDIR/system && \
+                         --prefix=${BASEDIR}/system && \
             make -j && make install)
-        [ -d $BASEDIR/../priv ] || mkdir $BASEDIR/../priv
-        cp $BASEDIR/system/bin/wt $BASEDIR/../priv
-        cp $BASEDIR/system/lib/*.so $BASEDIR/../priv
+        [ -d ${BASEDIR}/../priv ] || mkdir ${BASEDIR}/../priv
+        cp ${BASEDIR}/system/bin/wt ${BASEDIR}/../priv
+        cp ${BASEDIR}/system/lib/*.so ${BASEDIR}/../priv
         ;;
 esac

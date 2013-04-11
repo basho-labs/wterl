@@ -131,9 +131,9 @@ stop(_State) ->
                  {ok, any(), state()} |
                  {ok, not_found, state()} |
                  {error, term(), state()}.
-get(Bucket, Key, #state{connection=Connection}=State) ->
+get(Bucket, Key, #state{connection=Connection, table=Table}=State) ->
     WTKey = to_object_key(Bucket, Key),
-    case wterl:get(Connection, WTKey) of
+    case wterl:get(Connection, Table, WTKey) of
         {ok, Value} ->
             {ok, Value, State};
         not_found  ->
@@ -150,8 +150,8 @@ get(Bucket, Key, #state{connection=Connection}=State) ->
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
                  {error, term(), state()}.
-put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{connection=Connection}=State) ->
-    case wterl:put(Connection, to_object_key(Bucket, PrimaryKey), Val) of
+put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{connection=Connection, table=Table}=State) ->
+    case wterl:put(Connection, Table, to_object_key(Bucket, PrimaryKey), Val) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -165,8 +165,8 @@ put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{connection=Connection}=State) -
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
                     {ok, state()} |
                     {error, term(), state()}.
-delete(Bucket, Key, _IndexSpecs, #state{connection=Connection}=State) ->
-    case wterl:delete(Connection, to_object_key(Bucket, Key)) of
+delete(Bucket, Key, _IndexSpecs, #state{connection=Connection, table=Table}=State) ->
+    case wterl:delete(Connection, Table, to_object_key(Bucket, Key)) of
         ok ->
             {ok, State};
         {error, Reason} ->
