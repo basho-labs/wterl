@@ -304,7 +304,7 @@ ASYNC_NIF_DECL(
       bzero(conn_handle->contexts, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
       conn_handle->context_mutex = enif_mutex_create(NULL);
       ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
-      enif_release_resource(conn_handle); // Note: when GC'ed the BEAM calls __resource_conn_dtor()
+      enif_release_resource(conn_handle);
       ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, result));
     }
     else
@@ -337,8 +337,17 @@ ASYNC_NIF_DECL(
   },
   { // work
 
+    /* Free up the shared sessions and cursors. */
+    enif_mutex_lock(args->conn_handle->context_mutex);
+    __close_all_sessions(args->conn_handle);
+    if (args->conn_handle->session_config) {
+        enif_free((char *)args->conn_handle->session_config);
+        args->conn_handle->session_config = NULL;
+    }
     WT_CONNECTION* conn = args->conn_handle->conn;
     int rc = conn->close(conn, NULL);
+    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_destroy(args->conn_handle->context_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -1212,7 +1221,7 @@ ASYNC_NIF_DECL(
     cursor_handle->session = session;
     cursor_handle->cursor = cursor;
     ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);
-    enif_release_resource(cursor_handle); // Note: when GC'ed the BEAM calls __resource_cursor_dtor()
+    enif_release_resource(cursor_handle);
     ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, result));
   },
   { // post
@@ -1763,27 +1772,6 @@ ASYNC_NIF_DECL(
   });
 
 /**
- * Called when the resource handle is about to be garbage collected.
- */
-#if 0
-TODO:
-static void
-__resource_conn_dtor(ErlNifEnv *env, void *obj)
-{
-    WterlConnHandle *conn_handle = (WterlConnHandle *)obj;
-    /* Free up the shared sessions and cursors. */
-    enif_mutex_lock(conn_handle->context_mutex);
-    __close_all_sessions(conn_handle);
-    if (conn_handle->session_config) {
-        enif_free((void *)conn_handle->session_config);
-        conn_handle->session_config = NULL;
-    }
-    enif_mutex_unlock(conn_handle->context_mutex);
-    enif_mutex_destroy(conn_handle->context_mutex);
-}
-#endif
-
-/**
  * Called as this driver is loaded by the Erlang BEAM runtime triggered by the
  * module's on_load directive.
  *
@@ -1800,7 +1788,6 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     ErlNifResourceFlags flags = ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER;
     wterl_conn_RESOURCE = enif_open_resource_type(env, NULL, "wterl_conn_resource",
 						  NULL, flags, NULL);
-    // TODO: __resource_conn_dtor, flags, NULL);
     wterl_cursor_RESOURCE = enif_open_resource_type(env, NULL, "wterl_cursor_resource",
 						    NULL, flags, NULL);
 
