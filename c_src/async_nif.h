@@ -92,6 +92,7 @@ struct async_nif_worker_info {
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "enomem"));           \
     }                                                                   \
+    bzero(req, sizeof(struct async_nif_req_entry));                     \
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_ ## decl (args);                                          \
@@ -286,6 +287,7 @@ async_nif_load(void)
   async_nif = enif_alloc(sizeof(struct async_nif_state));
   if (!async_nif)
       return NULL;
+  bzero(async_nif, sizeof(struct async_nif_state));
   STAILQ_INIT(&(async_nif->reqs));
   async_nif->shutdown = 0;
 
@@ -309,6 +311,7 @@ async_nif_load(void)
   for (i = 0; i < num_worker_threads; i++) {
     struct async_nif_worker_info *wi;
     wi = enif_alloc(sizeof(struct async_nif_worker_info)); // TODO: check
+    bzero(wi, sizeof(struct async_nif_worker_info));
     wi->async_nif = async_nif;
     wi->worker = &async_nif->worker_entries[i];
     wi->worker_id = i;

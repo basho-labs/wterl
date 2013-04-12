@@ -294,21 +294,20 @@ drop(#state{connection=Connection, table=Table}=State) ->
 -spec is_empty(state()) -> boolean().
 is_empty(#state{is_empty_cursor=Cursor}) ->
     wterl:cursor_reset(Cursor),
-    try
-        not_found =:= wterl:cursor_next(Cursor)
-    after
-        ok = wterl:cursor_close(Cursor)
+    case wterl:cursor_next(Cursor) of
+        not_found -> true;
+        _ -> false
     end.
 
 %% @doc Get the status information for this wterl backend
 -spec status(state()) -> [{atom(), term()}].
 status(#state{status_cursor=Cursor}) ->
     wterl:cursor_reset(Cursor),
-    try
-        Stats = fetch_status(Cursor),
-        [{stats, Stats}]
-    after
-        ok = wterl:cursor_close(Cursor)
+    case fetch_status(Cursor) of
+        {ok, Stats} ->
+            Stats;
+        _ ->
+            []
     end.
 
 %% @doc Register an asynchronous callback
@@ -493,7 +492,7 @@ from_index_key(LKey) ->
 %% @private
 %% Return all status from wterl statistics cursor
 fetch_status(Cursor) ->
-    fetch_status(Cursor, wterl:cursor_next_value(Cursor), []).
+    {ok, fetch_status(Cursor, wterl:cursor_next_value(Cursor), [])}.
 fetch_status(_Cursor, not_found, Acc) ->
     lists:reverse(Acc);
 fetch_status(Cursor, {ok, Stat}, Acc) ->
