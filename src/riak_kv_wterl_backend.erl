@@ -321,13 +321,14 @@ callback(_Ref, _Msg, State) ->
 %% ===================================================================
 
 %% @private
-max_sessions(Config) ->
-    RingSize =
-        case app_helper:get_prop_or_env(ring_creation_size, Config, riak_core) of
-            undefined -> 1024;
-            Size -> Size
-        end,
-    2 * (RingSize * erlang:system_info(schedulers)).
+max_sessions(_Config) -> % TODO:
+    8192.
+    %% RingSize =
+    %%     case app_helper:get_prop_or_env(ring_creation_size, Config, riak_core) of
+    %%         undefined -> 1024;
+    %%         Size -> Size
+    %%     end,
+    %% 2 * (RingSize * erlang:system_info(schedulers)).
 
 %% @private
 establish_utility_cursors(Connection, Table) ->

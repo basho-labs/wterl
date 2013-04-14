@@ -24,7 +24,8 @@
 -define(ASYNC_NIF_CALL(Fun, Args),
         begin
             NIFRef = erlang:make_ref(),
-            case erlang:apply(Fun, [NIFRef|Args]) of
+            Id = erlang:system_info(scheduler_id) - 1,
+            case erlang:apply(Fun, [NIFRef|[Id|Args]]) of
                 {ok, {enqueued, _QDepth}} ->
                     receive
                         {NIFRef, {error, shutdown}=Error} ->

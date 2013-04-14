@@ -30,17 +30,13 @@
 #ifdef DEBUG
 #include <stdio.h>
 #include <stdarg.h>
-void debugf(const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\r\n");
-    fflush(stderr);
-    va_end(ap);
-}
+#define dprint(s, ...) do {                                             \
+    fprintf(stderr, s, ##__VA_ARGS__);                                  \
+    fprintf(stderr, "\r\n");                                            \
+    fflush(stderr);                                                     \
+    } while(0);
 #else
-#  define debugf(X, ...) {}
+#  define dprint(s, ...) {}
 #endif
 
 static ErlNifResourceType *wterl_conn_RESOURCE;
@@ -282,7 +278,7 @@ ASYNC_NIF_DECL(
         ASYNC_NIF_REPLY(enif_make_badarg(env));
         return;
     }
-    //debugf("c: %d // %s\ns: %d // %s", config.size, (char *)config.data, (char *)session_config.data, session_config.size);
+    //dprint("c: %d // %s\ns: %d // %s", config.size, (char *)config.data, (char *)session_config.data, session_config.size);
     int rc = wiredtiger_open(args->homedir, NULL, config.data[0] != 0 ? (const char*)config.data : NULL, &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
@@ -1203,7 +1199,7 @@ ASYNC_NIF_DECL(
     /* We create a separate session here to ensure that operations are thread safe. */
     WT_CONNECTION *conn = args->conn_handle->conn;
     WT_SESSION *session = NULL;
-    //debugf("cursor open: %s", (char *)args->conn_handle->session_config);
+    //dprint("cursor open: %s", (char *)args->conn_handle->session_config);
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
@@ -1823,36 +1819,36 @@ on_upgrade(ErlNifEnv *env, void **priv_data, void **old_priv_data, ERL_NIF_TERM 
 
 static ErlNifFunc nif_funcs[] =
 {
-    {"checkpoint_nif", 3, wterl_checkpoint},
-    {"conn_close_nif", 2, wterl_conn_close},
-    {"conn_open_nif", 4, wterl_conn_open},
-    {"create_nif", 4, wterl_create},
-    {"delete_nif", 4, wterl_delete},
-    {"drop_nif", 4, wterl_drop},
-    {"get_nif", 4, wterl_get},
-    {"put_nif", 5, wterl_put},
-    {"rename_nif", 5, wterl_rename},
-    {"salvage_nif", 4, wterl_salvage},
-    // TODO: {"txn_begin", 3, wterl_txn_begin},
-    // TODO: {"txn_commit", 3, wterl_txn_commit},
-    // TODO: {"txn_abort", 3, wterl_txn_abort},
-    {"truncate_nif", 6, wterl_truncate},
-    {"upgrade_nif", 4, wterl_upgrade},
-    {"verify_nif", 4, wterl_verify},
-    {"cursor_close_nif", 2, wterl_cursor_close},
-    {"cursor_insert_nif", 4, wterl_cursor_insert},
-    {"cursor_next_key_nif", 2, wterl_cursor_next_key},
-    {"cursor_next_nif", 2, wterl_cursor_next},
-    {"cursor_next_value_nif", 2, wterl_cursor_next_value},
-    {"cursor_open_nif", 4, wterl_cursor_open},
-    {"cursor_prev_key_nif", 2, wterl_cursor_prev_key},
-    {"cursor_prev_nif", 2, wterl_cursor_prev},
-    {"cursor_prev_value_nif", 2, wterl_cursor_prev_value},
-    {"cursor_remove_nif", 3, wterl_cursor_remove},
-    {"cursor_reset_nif", 2, wterl_cursor_reset},
-    {"cursor_search_near_nif", 3, wterl_cursor_search_near},
-    {"cursor_search_nif", 3, wterl_cursor_search},
-    {"cursor_update_nif", 4, wterl_cursor_update},
+    {"checkpoint_nif", 4, wterl_checkpoint},
+    {"conn_close_nif", 3, wterl_conn_close},
+    {"conn_open_nif", 5, wterl_conn_open},
+    {"create_nif", 5, wterl_create},
+    {"delete_nif", 5, wterl_delete},
+    {"drop_nif", 5, wterl_drop},
+    {"get_nif", 5, wterl_get},
+    {"put_nif", 6, wterl_put},
+    {"rename_nif", 6, wterl_rename},
+    {"salvage_nif", 5, wterl_salvage},
+    // TODO: {"txn_begin", 4, wterl_txn_begin},
+    // TODO: {"txn_commit", 4, wterl_txn_commit},
+    // TODO: {"txn_abort", 4, wterl_txn_abort},
+    {"truncate_nif", 7, wterl_truncate},
+    {"upgrade_nif", 5, wterl_upgrade},
+    {"verify_nif", 5, wterl_verify},
+    {"cursor_close_nif", 3, wterl_cursor_close},
+    {"cursor_insert_nif", 5, wterl_cursor_insert},
+    {"cursor_next_key_nif", 3, wterl_cursor_next_key},
+    {"cursor_next_nif", 3, wterl_cursor_next},
+    {"cursor_next_value_nif", 3, wterl_cursor_next_value},
+    {"cursor_open_nif", 5, wterl_cursor_open},
+    {"cursor_prev_key_nif", 3, wterl_cursor_prev_key},
+    {"cursor_prev_nif", 3, wterl_cursor_prev},
+    {"cursor_prev_value_nif", 3, wterl_cursor_prev_value},
+    {"cursor_remove_nif", 4, wterl_cursor_remove},
+    {"cursor_reset_nif", 3, wterl_cursor_reset},
+    {"cursor_search_near_nif", 4, wterl_cursor_search_near},
+    {"cursor_search_nif", 4, wterl_cursor_search},
+    {"cursor_update_nif", 5, wterl_cursor_update},
 };
 
 ERL_NIF_INIT(wterl, nif_funcs, &on_load, &on_reload, &on_upgrade, &on_unload);

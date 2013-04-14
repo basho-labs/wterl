@@ -115,20 +115,20 @@ connection_open(HomeDir, ConnectionConfig, SessionConfig) ->
 
 -spec conn_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
 conn_open(HomeDir, ConnectionConfig, SessionConfig) ->
-    ?ASYNC_NIF_CALL(fun conn_open_nif/4, [HomeDir,
+    ?ASYNC_NIF_CALL(fun conn_open_nif/5, [HomeDir,
                                           config_to_bin(ConnectionConfig),
                                           config_to_bin(SessionConfig)]).
 
--spec conn_open_nif(reference(), string(), config(), config()) -> {ok, connection()} | {error, term()}.
-conn_open_nif(_AsyncRef, _HomeDir, _ConnectionConfig, _SessionConfig) ->
+-spec conn_open_nif(reference(), non_neg_integer(), string(), config(), config()) -> {ok, connection()} | {error, term()}.
+conn_open_nif(_AsyncRef, _SchedulerId, _HomeDir, _ConnectionConfig, _SessionConfig) ->
     ?nif_stub.
 
 -spec connection_close(connection()) -> ok | {error, term()}.
 connection_close(ConnRef) ->
-    ?ASYNC_NIF_CALL(fun conn_close_nif/2, [ConnRef]).
+    ?ASYNC_NIF_CALL(fun conn_close_nif/3, [ConnRef]).
 
--spec conn_close_nif(reference(), connection()) -> ok | {error, term()}.
-conn_close_nif(_AsyncRef, _ConnRef) ->
+-spec conn_close_nif(reference(), non_neg_integer(), connection()) -> ok | {error, term()}.
+conn_close_nif(_AsyncRef, _SchedulerId, _ConnRef) ->
     ?nif_stub.
 
 -spec create(connection(), string()) -> ok | {error, term()}.
@@ -136,10 +136,10 @@ conn_close_nif(_AsyncRef, _ConnRef) ->
 create(Ref, Name) ->
     create(Ref, Name, []).
 create(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun create_nif/4, [Ref, Name, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun create_nif/5, [Ref, Name, config_to_bin(Config)]).
 
--spec create_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
-create_nif(_AsyncNif, _Ref, _Name, _Config) ->
+-spec create_nif(reference(), non_neg_integer(), connection(), string(), config()) -> ok | {error, term()}.
+create_nif(_AsyncNif, _SchedulerId, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec drop(connection(), string()) -> ok | {error, term()}.
@@ -147,34 +147,34 @@ create_nif(_AsyncNif, _Ref, _Name, _Config) ->
 drop(Ref, Name) ->
     drop(Ref, Name, []).
 drop(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun drop_nif/4, [Ref, Name, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun drop_nif/5, [Ref, Name, config_to_bin(Config)]).
 
--spec drop_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
-drop_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec drop_nif(reference(), non_neg_integer(), connection(), string(), config()) -> ok | {error, term()}.
+drop_nif(_AsyncRef, _SchedulerId, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec delete(connection(), string(), key()) -> ok | {error, term()}.
 delete(Ref, Table, Key) ->
-    ?ASYNC_NIF_CALL(fun delete_nif/4, [Ref, Table, Key]).
+    ?ASYNC_NIF_CALL(fun delete_nif/5, [Ref, Table, Key]).
 
--spec delete_nif(reference(), connection(), string(), key()) -> ok | {error, term()}.
-delete_nif(_AsyncRef, _Ref, _Table, _Key) ->
+-spec delete_nif(reference(), non_neg_integer(), connection(), string(), key()) -> ok | {error, term()}.
+delete_nif(_AsyncRef, _SchedulerId, _Ref, _Table, _Key) ->
     ?nif_stub.
 
 -spec get(connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
 get(Ref, Table, Key) ->
-    ?ASYNC_NIF_CALL(fun get_nif/4, [Ref, Table, Key]).
+    ?ASYNC_NIF_CALL(fun get_nif/5, [Ref, Table, Key]).
 
--spec get_nif(reference(), connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
-get_nif(_AsyncRef, _Ref, _Table, _Key) ->
+-spec get_nif(reference(), non_neg_integer(), connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
+get_nif(_AsyncRef, _SchedulerId, _Ref, _Table, _Key) ->
     ?nif_stub.
 
 -spec put(connection(), string(), key(), value()) -> ok | {error, term()}.
 put(Ref, Table, Key, Value) ->
-    ?ASYNC_NIF_CALL(fun put_nif/5, [Ref, Table, Key, Value]).
+    ?ASYNC_NIF_CALL(fun put_nif/6, [Ref, Table, Key, Value]).
 
--spec put_nif(reference(), connection(), string(), key(), value()) -> ok | {error, term()}.
-put_nif(_AsyncRef, _Ref, _Table, _Key, _Value) ->
+-spec put_nif(reference(), non_neg_integer(), connection(), string(), key(), value()) -> ok | {error, term()}.
+put_nif(_AsyncRef, _SchedulerId, _Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
 -spec rename(connection(), string(), string()) -> ok | {error, term()}.
@@ -182,10 +182,10 @@ put_nif(_AsyncRef, _Ref, _Table, _Key, _Value) ->
 rename(Ref, OldName, NewName) ->
     rename(Ref, OldName, NewName, []).
 rename(Ref, OldName, NewName, Config) ->
-    ?ASYNC_NIF_CALL(fun rename_nif/5, [Ref, OldName, NewName, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun rename_nif/6, [Ref, OldName, NewName, config_to_bin(Config)]).
 
--spec rename_nif(reference(), connection(), string(), string(), config()) -> ok | {error, term()}.
-rename_nif(_AsyncRef, _Ref, _OldName, _NewName, _Config) ->
+-spec rename_nif(reference(), non_neg_integer(), connection(), string(), string(), config()) -> ok | {error, term()}.
+rename_nif(_AsyncRef, _SchedulerId, _Ref, _OldName, _NewName, _Config) ->
     ?nif_stub.
 
 -spec salvage(connection(), string()) -> ok | {error, term()}.
@@ -193,10 +193,10 @@ rename_nif(_AsyncRef, _Ref, _OldName, _NewName, _Config) ->
 salvage(Ref, Name) ->
     salvage(Ref, Name, []).
 salvage(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun salvage_nif/4, [Ref, Name, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun salvage_nif/5, [Ref, Name, config_to_bin(Config)]).
 
--spec salvage_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
-salvage_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec salvage_nif(reference(), non_neg_integer(), connection(), string(), config()) -> ok | {error, term()}.
+salvage_nif(_AsyncRef, _SchedulerId, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec checkpoint(connection()) -> ok | {error, term()}.
@@ -204,10 +204,10 @@ salvage_nif(_AsyncRef, _Ref, _Name, _Config) ->
 checkpoint(_Ref) ->
     checkpoint(_Ref, []).
 checkpoint(Ref, Config) ->
-    ?ASYNC_NIF_CALL(fun checkpoint_nif/3, [Ref, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun checkpoint_nif/4, [Ref, config_to_bin(Config)]).
 
--spec checkpoint_nif(reference(), connection(), config()) -> ok | {error, term()}.
-checkpoint_nif(_AsyncRef, _Ref, _Config) ->
+-spec checkpoint_nif(reference(), non_neg_integer(), connection(), config()) -> ok | {error, term()}.
+checkpoint_nif(_AsyncRef, _SchedulerId, _Ref, _Config) ->
     ?nif_stub.
 
 -spec truncate(connection(), string()) -> ok | {error, term()}.
@@ -221,10 +221,10 @@ truncate(Ref, Name, Config) ->
 truncate(Ref, Name, Start, Stop) ->
     truncate(Ref, Name, Start, Stop, []).
 truncate(Ref, Name, Start, Stop, Config) ->
-    ?ASYNC_NIF_CALL(fun truncate_nif/6, [Ref, Name, Start, Stop, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun truncate_nif/7, [Ref, Name, Start, Stop, config_to_bin(Config)]).
 
--spec truncate_nif(reference(), connection(), string(), cursor() | first, cursor() | last, config()) -> ok | {error, term()}.
-truncate_nif(_AsyncRef, _Ref, _Name, _Start, _Stop, _Config) ->
+-spec truncate_nif(reference(), non_neg_integer(), connection(), string(), cursor() | first, cursor() | last, config()) -> ok | {error, term()}.
+truncate_nif(_AsyncRef, _SchedulerId, _Ref, _Name, _Start, _Stop, _Config) ->
     ?nif_stub.
 
 -spec upgrade(connection(), string()) -> ok | {error, term()}.
@@ -232,10 +232,10 @@ truncate_nif(_AsyncRef, _Ref, _Name, _Start, _Stop, _Config) ->
 upgrade(Ref, Name) ->
     upgrade(Ref, Name, []).
 upgrade(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun upgrade_nif/4, [Ref, Name, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun upgrade_nif/5, [Ref, Name, config_to_bin(Config)]).
 
--spec upgrade_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
-upgrade_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec upgrade_nif(reference(), non_neg_integer(), connection(), string(), config()) -> ok | {error, term()}.
+upgrade_nif(_AsyncRef, _SchedulerId, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec verify(connection(), string()) -> ok | {error, term()}.
@@ -243,10 +243,10 @@ upgrade_nif(_AsyncRef, _Ref, _Name, _Config) ->
 verify(Ref, Name) ->
     verify(Ref, Name, []).
 verify(Ref, Name, Config) ->
-    ?ASYNC_NIF_CALL(fun verify_nif/4, [Ref, Name, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun verify_nif/5, [Ref, Name, config_to_bin(Config)]).
 
--spec verify_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
-verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
+-spec verify_nif(reference(), non_neg_integer(), connection(), string(), config()) -> ok | {error, term()}.
+verify_nif(_AsyncRef, _SchedulerId, _Ref, _Name, _Config) ->
     ?nif_stub.
 
 -spec cursor_open(connection(), string()) -> {ok, cursor()} | {error, term()}.
@@ -254,114 +254,114 @@ verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
 cursor_open(Ref, Table) ->
     cursor_open(Ref, Table, []).
 cursor_open(Ref, Table, Config) ->
-    ?ASYNC_NIF_CALL(fun cursor_open_nif/4, [Ref, Table, config_to_bin(Config)]).
+    ?ASYNC_NIF_CALL(fun cursor_open_nif/5, [Ref, Table, config_to_bin(Config)]).
 
--spec cursor_open_nif(reference(), connection(), string(), config()) -> {ok, cursor()} | {error, term()}.
-cursor_open_nif(_AsyncRef, _Ref, _Table, _Config) ->
+-spec cursor_open_nif(reference(), non_neg_integer(), connection(), string(), config()) -> {ok, cursor()} | {error, term()}.
+cursor_open_nif(_AsyncRef, _SchedulerId, _Ref, _Table, _Config) ->
     ?nif_stub.
 
 -spec cursor_close(cursor()) -> ok | {error, term()}.
 cursor_close(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_close_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_close_nif/3, [Cursor]).
 
--spec cursor_close_nif(reference(), cursor()) -> ok | {error, term()}.
-cursor_close_nif(_AsyncRef, _Cursor) ->
+-spec cursor_close_nif(reference(), non_neg_integer(), cursor()) -> ok | {error, term()}.
+cursor_close_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_next(cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
 cursor_next(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_next_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_next_nif/3, [Cursor]).
 
--spec cursor_next_nif(reference(), cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
-cursor_next_nif(_AsyncRef, _Cursor) ->
+-spec cursor_next_nif(reference(), non_neg_integer(), cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
+cursor_next_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_next_key(cursor()) -> {ok, key()} | not_found | {error, term()}.
 cursor_next_key(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_next_key_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_next_key_nif/3, [Cursor]).
 
--spec cursor_next_key_nif(reference(), cursor()) -> {ok, key()} | not_found | {error, term()}.
-cursor_next_key_nif(_AsyncRef, _Cursor) ->
+-spec cursor_next_key_nif(reference(), non_neg_integer(), cursor()) -> {ok, key()} | not_found | {error, term()}.
+cursor_next_key_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_next_value(cursor()) -> {ok, value()} | not_found | {error, term()}.
 cursor_next_value(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_next_value_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_next_value_nif/3, [Cursor]).
 
--spec cursor_next_value_nif(reference(), cursor()) -> {ok, value()} | not_found | {error, term()}.
-cursor_next_value_nif(_AsyncRef, _Cursor) ->
+-spec cursor_next_value_nif(reference(), non_neg_integer(), cursor()) -> {ok, value()} | not_found | {error, term()}.
+cursor_next_value_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_prev(cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
 cursor_prev(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_prev_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_prev_nif/3, [Cursor]).
 
--spec cursor_prev_nif(reference(), cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
-cursor_prev_nif(_AsyncRef, _Cursor) ->
+-spec cursor_prev_nif(reference(), non_neg_integer(), cursor()) -> {ok, key(), value()} | not_found | {error, term()}.
+cursor_prev_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_prev_key(cursor()) -> {ok, key()} | not_found | {error, term()}.
 cursor_prev_key(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_prev_key_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_prev_key_nif/3, [Cursor]).
 
--spec cursor_prev_key_nif(reference(), cursor()) -> {ok, key()} | not_found | {error, term()}.
-cursor_prev_key_nif(_AsyncRef, _Cursor) ->
+-spec cursor_prev_key_nif(reference(), non_neg_integer(), cursor()) -> {ok, key()} | not_found | {error, term()}.
+cursor_prev_key_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_prev_value(cursor()) -> {ok, value()} | not_found | {error, term()}.
 cursor_prev_value(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_prev_value_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_prev_value_nif/3, [Cursor]).
 
--spec cursor_prev_value_nif(reference(), cursor()) -> {ok, value()} | not_found | {error, term()}.
-cursor_prev_value_nif(_AsyncRef, _Cursor) ->
+-spec cursor_prev_value_nif(reference(), non_neg_integer(), cursor()) -> {ok, value()} | not_found | {error, term()}.
+cursor_prev_value_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_search(cursor(), key()) -> {ok, value()} | {error, term()}.
 cursor_search(Cursor, Key) ->
-    ?ASYNC_NIF_CALL(fun cursor_search_nif/3, [Cursor, Key]).
+    ?ASYNC_NIF_CALL(fun cursor_search_nif/4, [Cursor, Key]).
 
--spec cursor_search_nif(reference(), cursor(), key()) -> {ok, value()} | {error, term()}.
-cursor_search_nif(_AsyncRef, _Cursor, _Key) ->
+-spec cursor_search_nif(reference(), non_neg_integer(), cursor(), key()) -> {ok, value()} | {error, term()}.
+cursor_search_nif(_AsyncRef, _SchedulerId, _Cursor, _Key) ->
     ?nif_stub.
 
 -spec cursor_search_near(cursor(), key()) -> {ok, value()} | {error, term()}.
 cursor_search_near(Cursor, Key) ->
-    ?ASYNC_NIF_CALL(fun cursor_search_near_nif/3, [Cursor, Key]).
+    ?ASYNC_NIF_CALL(fun cursor_search_near_nif/4, [Cursor, Key]).
 
--spec cursor_search_near_nif(reference(), cursor(), key()) -> {ok, value()} | {error, term()}.
-cursor_search_near_nif(_AsyncRef, _Cursor, _Key) ->
+-spec cursor_search_near_nif(reference(), non_neg_integer(), cursor(), key()) -> {ok, value()} | {error, term()}.
+cursor_search_near_nif(_AsyncRef, _SchedulerId, _Cursor, _Key) ->
     ?nif_stub.
 
 -spec cursor_reset(cursor()) -> ok | {error, term()}.
 cursor_reset(Cursor) ->
-    ?ASYNC_NIF_CALL(fun cursor_reset_nif/2, [Cursor]).
+    ?ASYNC_NIF_CALL(fun cursor_reset_nif/3, [Cursor]).
 
--spec cursor_reset_nif(reference(), cursor()) -> ok | {error, term()}.
-cursor_reset_nif(_AsyncRef, _Cursor) ->
+-spec cursor_reset_nif(reference(), non_neg_integer(), cursor()) -> ok | {error, term()}.
+cursor_reset_nif(_AsyncRef, _SchedulerId, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_insert(cursor(), key(), value()) -> ok | {error, term()}.
 cursor_insert(Cursor, Key, Value) ->
-    ?ASYNC_NIF_CALL(fun cursor_insert_nif/4, [Cursor, Key, Value]).
+    ?ASYNC_NIF_CALL(fun cursor_insert_nif/5, [Cursor, Key, Value]).
 
--spec cursor_insert_nif(reference(), cursor(), key(), value()) -> ok | {error, term()}.
-cursor_insert_nif(_AsyncRef, _Cursor, _Key, _Value) ->
+-spec cursor_insert_nif(reference(), non_neg_integer(), cursor(), key(), value()) -> ok | {error, term()}.
+cursor_insert_nif(_AsyncRef, _SchedulerId, _Cursor, _Key, _Value) ->
     ?nif_stub.
 
 -spec cursor_update(cursor(), key(), value()) -> ok | {error, term()}.
 cursor_update(Cursor, Key, Value) ->
-    ?ASYNC_NIF_CALL(fun cursor_update_nif/4, [Cursor, Key, Value]).
+    ?ASYNC_NIF_CALL(fun cursor_update_nif/5, [Cursor, Key, Value]).
 
--spec cursor_update_nif(reference(), cursor(), key(), value()) -> ok | {error, term()}.
-cursor_update_nif(_AsyncRef, _Cursor, _Key, _Value) ->
+-spec cursor_update_nif(reference(), non_neg_integer(), cursor(), key(), value()) -> ok | {error, term()}.
+cursor_update_nif(_AsyncRef, _SchedulerId, _Cursor, _Key, _Value) ->
     ?nif_stub.
 
 -spec cursor_remove(cursor(), key()) -> ok | {error, term()}.
 cursor_remove(Cursor, Key) ->
-    ?ASYNC_NIF_CALL(fun cursor_remove_nif/3, [Cursor, Key]).
+    ?ASYNC_NIF_CALL(fun cursor_remove_nif/4, [Cursor, Key]).
 
--spec cursor_remove_nif(reference(), cursor(), key()) -> ok | {error, term()}.
-cursor_remove_nif(_AsyncRef, _Cursor, _Key) ->
+-spec cursor_remove_nif(reference(), non_neg_integer(), cursor(), key()) -> ok | {error, term()}.
+cursor_remove_nif(_AsyncRef, _SchedulerId,  _Cursor, _Key) ->
     ?nif_stub.
 
 -type fold_keys_fun() :: fun((Key::binary(), any()) -> any()).
