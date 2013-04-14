@@ -28,9 +28,9 @@ case "$1" in
              ./autogen.sh)
         fi
         (cd wiredtiger/build_posix && \
-            ../configure --with-pic \
+            CFLAGS="-I/usr/local/include -L/usr/local/lib" \
+	    ../configure --with-pic \
                          --enable-snappy \
-                         --enable-bzip2 \
                          --prefix=${BASEDIR}/system && \
             make -j && make install)
         [ -d ${BASEDIR}/../priv ] || mkdir ${BASEDIR}/../priv

@@ -96,7 +96,7 @@ struct async_nif_state {
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "enomem"));           \
     }                                                                   \
-    bzero(req, sizeof(struct async_nif_req_entry));                     \
+    memset(req, 0, sizeof(struct async_nif_req_entry));			\
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_ ## decl (args);                                          \
@@ -278,7 +278,7 @@ async_nif_unload(ErlNifEnv *env)
           async_nif->req_count--;
       }
   }
-  bzero(async_nif, sizeof(struct async_nif_state));
+  memset(async_nif, 0, sizeof(struct async_nif_state));
   enif_free(async_nif);
 }
 
@@ -301,7 +301,7 @@ async_nif_load(void)
   async_nif = enif_alloc(sizeof(struct async_nif_state));
   if (!async_nif)
       return NULL;
-  bzero(async_nif, sizeof(struct async_nif_state));
+  memset(async_nif, 0, sizeof(struct async_nif_state));
 
   async_nif->num_queues = info.scheduler_threads;
   async_nif->next_q = 0;
@@ -316,7 +316,7 @@ async_nif_load(void)
   }
 
   /* Setup the thread pool management. */
-  bzero(async_nif->worker_entries, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
+  memset(async_nif->worker_entries, 0, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
 
   /* Start the worker threads. */
   //unsigned int num_workers = ASYNC_NIF_MAX_WORKERS - (ASYNC_NIF_MAX_WORKERS % async_nif->num_queues);
@@ -348,7 +348,7 @@ async_nif_load(void)
         enif_thread_join(async_nif->worker_entries[i].tid, &exit_value);
       }
 
-      bzero(async_nif->worker_entries, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
+      memset(async_nif->worker_entries, 0, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
       return NULL;
     }
   }

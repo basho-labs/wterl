@@ -138,7 +138,7 @@ __close_all_sessions(WterlConnHandle *conn_handle)
             }
             kh_destroy(cursors, h);
             session->close(session, NULL);
-            bzero(&conn_handle->contexts[i], sizeof(WterlCtx));
+            memset(&conn_handle->contexts[i], 0, sizeof(WterlCtx));
         }
     }
     conn_handle->num_contexts = 0;
@@ -297,7 +297,7 @@ ASYNC_NIF_DECL(
       }
       conn_handle->conn = conn;
       conn_handle->num_contexts = 0;
-      bzero(conn_handle->contexts, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
+      memset(conn_handle->contexts, 0, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
       conn_handle->context_mutex = enif_mutex_create(NULL);
       ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
       enif_release_resource(conn_handle);
