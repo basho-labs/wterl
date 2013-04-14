@@ -177,7 +177,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
                           enif_make_tuple2(req->env, enif_make_atom(req->env, "enqueued"),
 					   enif_make_int(req->env, async_nif->req_count)));
   enif_mutex_unlock(q->reqs_mutex);
-  enif_cond_broadcast(q->reqs_cnd);
+  enif_cond_signal(q->reqs_cnd);
   return reply;
 }
 
@@ -225,7 +225,7 @@ async_nif_worker_fn(void *arg)
         if (STAILQ_EMPTY(&q->reqs)) {
             req = NULL;
         } else {
-            enif_cond_broadcast(q->reqs_cnd);
+            enif_cond_signal(q->reqs_cnd);
             enif_mutex_lock(q->reqs_mutex);
             req = STAILQ_FIRST(&q->reqs);
 	}
