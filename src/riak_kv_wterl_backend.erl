@@ -94,8 +94,8 @@ start(Partition, Config) ->
         end,
     case AppStart of
         ok ->
-            {ok, Connection} = establish_connection(Config),
             Type = wterl:config_value(type, Config, "lsm"),
+            {ok, Connection} = establish_connection(Config, Type),
             Table = Type ++ ":wt" ++ integer_to_list(Partition),
             TableOpts =
                 case Type of
