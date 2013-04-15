@@ -51,6 +51,7 @@
 -define(CAPABILITIES, [async_fold]).
 
 -record(state, {table :: string(),
+                type :: string(),
                 connection :: wterl:connection(),
                 is_empty_cursor :: wterl:cursor(),
                 status_cursor :: wterl:cursor()}).
@@ -94,23 +95,31 @@ start(Partition, Config) ->
     case AppStart of
         ok ->
             {ok, Connection} = establish_connection(Config),
-            Table = "lsm:wt" ++ integer_to_list(Partition),
+            Type = wterl:config_value(type, Config, "lsm"),
+            Table = Type ++ ":wt" ++ integer_to_list(Partition),
             TableOpts =
-                [{block_compressor, "snappy"},
-                 {internal_page_max, "128K"},
-                 {leaf_page_max, "128K"},
-                 {lsm_chunk_size, "25MB"},
-		 {lsm_bloom_newest, true},
-		 {lsm_bloom_oldest, true} ,
-                 {lsm_bloom_bit_count, 128},
-                 {lsm_bloom_hash_count, 64},
-                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
-                ],
+                case Type of
+                    "lsm" ->
+                        [{block_compressor, "snappy"},
+                         {internal_page_max, "128K"},
+                         {leaf_page_max, "128K"},
+                         {lsm_chunk_size, "25MB"},
+                         {lsm_bloom_newest, true},
+                         {lsm_bloom_oldest, true} ,
+                         {lsm_bloom_bit_count, 128},
+                         {lsm_bloom_hash_count, 64},
+                         {lsm_bloom_config, [{leaf_page_max, "8MB"}]} ];
+                    "table" ->
+                        [{block_compressor, "snappy"}];
+                    _ ->
+                        []
+                end,
             case wterl:create(Connection, Table, TableOpts) of
                 ok ->
                     case establish_utility_cursors(Connection, Table) of
                         {ok, IsEmptyCursor, StatusCursor} ->
-                            {ok, #state{table=Table, connection=Connection,
+                            {ok, #state{table=Table, type=Type,
+                                        connection=Connection,
                                         is_empty_cursor=IsEmptyCursor,
                                         status_cursor=StatusCursor}};
                         {error, Reason2} ->
@@ -345,7 +354,7 @@ establish_utility_cursors(Connection, Table) ->
     end.
 
 %% @private
-establish_connection(Config) ->
+establish_connection(Config, Type) ->
     %% Get the data root directory
     case app_helper:get_prop_or_env(data_root, Config, wterl) of
         undefined ->
@@ -366,7 +375,7 @@ establish_connection(Config) ->
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
                     %% NOTE: LSM auto-checkpoints, so we don't have too.
-                    %% wterl:config_value(checkpoint, Config, [{wait, 10}]), % sec
+                    [wterl:config_value(checkpoint, Config, [{wait, 10}]) || Type =:= "table"],
                     wterl:config_value(verbose, Config, [ 
                          %"ckpt" "block", "shared_cache", "evictserver", "fileops",
                          %"hazard", "mutex", "read", "readserver", "reconcile",

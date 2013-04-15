@@ -24,9 +24,8 @@
 -define(ASYNC_NIF_CALL(Fun, Args),
         begin
             NIFRef = erlang:make_ref(),
-            Id = erlang:system_info(scheduler_id) - 1,
-            case erlang:apply(Fun, [NIFRef|[Id|Args]]) of
-                {ok, {enqueued, _QDepth}} ->
+            case erlang:apply(Fun, [NIFRef|Args]) of
+                {ok, enqueued} ->
                     receive
                         {NIFRef, {error, shutdown}=Error} ->
                             %% Work unit was queued, but not executed.

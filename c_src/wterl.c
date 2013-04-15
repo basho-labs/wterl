@@ -70,8 +70,8 @@ typedef struct {
 typedef struct {
     WT_CONNECTION *conn;
     const char *session_config;
-    ErlNifMutex *context_mutex;
     unsigned int num_contexts;
+    ErlNifMutex *contexts_mutex;
     WterlCtx contexts[ASYNC_NIF_MAX_WORKERS];
 } WterlConnHandle;
 
@@ -102,17 +102,17 @@ __session_for(WterlConnHandle *conn_handle, unsigned int worker_id, WT_SESSION *
     *session = ctx->session;
     if (*session == NULL) {
 	/* Create a context for this worker thread to reuse. */
-        enif_mutex_lock(conn_handle->context_mutex);
+        enif_mutex_lock(conn_handle->contexts_mutex);
 	WT_CONNECTION *conn = conn_handle->conn;
 	int rc = conn->open_session(conn, NULL, conn_handle->session_config, session);
 	if (rc != 0) {
-            enif_mutex_unlock(conn_handle->context_mutex);
+            enif_mutex_unlock(conn_handle->contexts_mutex);
 	    return rc;
         }
 	ctx->session = *session;
 	ctx->cursors = kh_init(cursors);
         conn_handle->num_contexts++;
-        enif_mutex_unlock(conn_handle->context_mutex);
+        enif_mutex_unlock(conn_handle->contexts_mutex);
     }
     return 0;
 }
@@ -120,7 +120,7 @@ __session_for(WterlConnHandle *conn_handle, unsigned int worker_id, WT_SESSION *
 /**
  * Close all sessions and all cursors open on any objects.
  *
- * Note: always call within enif_mutex_lock/unlock(conn_handle->context_mutex)
+ * Note: always call within enif_mutex_lock/unlock(conn_handle->contexts_mutex)
  */
 void
 __close_all_sessions(WterlConnHandle *conn_handle)
@@ -142,7 +142,7 @@ __close_all_sessions(WterlConnHandle *conn_handle)
             }
             kh_destroy(cursors, h);
             session->close(session, NULL);
-            memset(&conn_handle->contexts[i], 0, sizeof(WterlCtx));
+            ctx->session = NULL;
         }
     }
     conn_handle->num_contexts = 0;
@@ -151,7 +151,7 @@ __close_all_sessions(WterlConnHandle *conn_handle)
 /**
  * Close cursors open on 'uri' object.
  *
- * Note: always call within enif_mutex_lock/unlock(conn_handle->context_mutex)
+ * Note: always call within enif_mutex_lock/unlock(conn_handle->contexts_mutex)
  */
 void
 __close_cursors_on(WterlConnHandle *conn_handle, const char *uri) // TODO: race?
@@ -189,18 +189,18 @@ __retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char
 	*cursor = (WT_CURSOR*)kh_value(h, itr);
     } else {
 	// key does not exist in hash table, create and insert one
-        enif_mutex_lock(conn_handle->context_mutex);
+        enif_mutex_lock(conn_handle->contexts_mutex);
 	WT_SESSION *session = conn_handle->contexts[worker_id].session;
 	int rc = session->open_cursor(session, uri, NULL, "overwrite,raw", cursor);
 	if (rc != 0) {
-            enif_mutex_unlock(conn_handle->context_mutex);
+            enif_mutex_unlock(conn_handle->contexts_mutex);
 	    return rc;
         }
 
         char *key = enif_alloc(sizeof(Uri));
         if (!key) {
             session->close(session, NULL);
-            enif_mutex_unlock(conn_handle->context_mutex);
+            enif_mutex_unlock(conn_handle->contexts_mutex);
 	    return ENOMEM;
         }
         memcpy(key, uri, 128);
@@ -208,7 +208,7 @@ __retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char
         int itr_status;
         itr = kh_put(cursors, h, key, &itr_status);
 	kh_value(h, itr) = *cursor;
-        enif_mutex_unlock(conn_handle->context_mutex);
+        enif_mutex_unlock(conn_handle->contexts_mutex);
     }
     return 0;
 }
@@ -302,7 +302,7 @@ ASYNC_NIF_DECL(
       conn_handle->conn = conn;
       conn_handle->num_contexts = 0;
       memset(conn_handle->contexts, 0, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
-      conn_handle->context_mutex = enif_mutex_create(NULL);
+      conn_handle->contexts_mutex = enif_mutex_create(NULL);
       ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
       enif_release_resource(conn_handle);
       ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, result));
@@ -338,7 +338,7 @@ ASYNC_NIF_DECL(
   { // work
 
     /* Free up the shared sessions and cursors. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_all_sessions(args->conn_handle);
     if (args->conn_handle->session_config) {
         enif_free((char *)args->conn_handle->session_config);
@@ -346,8 +346,8 @@ ASYNC_NIF_DECL(
     }
     WT_CONNECTION* conn = args->conn_handle->conn;
     int rc = conn->close(conn, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
-    enif_mutex_destroy(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
+    enif_mutex_destroy(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -441,13 +441,13 @@ ASYNC_NIF_DECL(
   { // work
 
     /* This call requires that there be no open cursors referencing the object. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_cursors_on(args->conn_handle, args->uri);
 
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
-      enif_mutex_unlock(args->conn_handle->context_mutex);
+      enif_mutex_unlock(args->conn_handle->contexts_mutex);
       return;
     }
 
@@ -459,7 +459,7 @@ ASYNC_NIF_DECL(
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-        enif_mutex_unlock(args->conn_handle->context_mutex);
+        enif_mutex_unlock(args->conn_handle->contexts_mutex);
 	return;
     }
     /* Note: we must first close all cursors referencing this object or this
@@ -472,7 +472,7 @@ ASYNC_NIF_DECL(
 
     rc = session->drop(session, args->uri, (const char*)config.data);
     (void)session->close(session, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -512,7 +512,7 @@ ASYNC_NIF_DECL(
   { // work
 
     /* This call requires that there be no open cursors referencing the object. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_cursors_on(args->conn_handle, args->oldname);
 
     ErlNifBinary config;
@@ -537,7 +537,7 @@ ASYNC_NIF_DECL(
     // TODO: see drop's note, same goes here.
     rc = session->rename(session, args->oldname, args->newname, (const char*)config.data);
     (void)session->close(session, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -577,7 +577,7 @@ ASYNC_NIF_DECL(
   { // work
 
     /* This call requires that there be no open cursors referencing the object. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_cursors_on(args->conn_handle, args->uri);
 
     ErlNifBinary config;
@@ -599,7 +599,7 @@ ASYNC_NIF_DECL(
 
     rc = session->salvage(session, args->uri, (const char*)config.data);
     (void)session->close(session, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -706,13 +706,13 @@ ASYNC_NIF_DECL(
   { // work
 
     /* This call requires that there be no open cursors referencing the object. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_cursors_on(args->conn_handle, args->uri);
 
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
-      enif_mutex_unlock(args->conn_handle->context_mutex);
+      enif_mutex_unlock(args->conn_handle->contexts_mutex);
       return;
     }
 
@@ -725,7 +725,7 @@ ASYNC_NIF_DECL(
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-        enif_mutex_unlock(args->conn_handle->context_mutex);
+        enif_mutex_unlock(args->conn_handle->contexts_mutex);
 	return;
     }
 
@@ -740,7 +740,7 @@ ASYNC_NIF_DECL(
     if (!args->from_first) {
         if (!enif_inspect_binary(env, args->start, &start_key)) {
             ASYNC_NIF_REPLY(enif_make_badarg(env));
-            enif_mutex_unlock(args->conn_handle->context_mutex);
+            enif_mutex_unlock(args->conn_handle->contexts_mutex);
             return;
         }
     }
@@ -748,7 +748,7 @@ ASYNC_NIF_DECL(
     if (rc != 0) {
         ASYNC_NIF_REPLY(__strerror_term(env, rc));
         session->close(session, NULL);
-        enif_mutex_unlock(args->conn_handle->context_mutex);
+        enif_mutex_unlock(args->conn_handle->contexts_mutex);
         return;
     }
     /* Position the start cursor at the first record or the specified record. */
@@ -758,7 +758,7 @@ ASYNC_NIF_DECL(
             ASYNC_NIF_REPLY(__strerror_term(env, rc));
             start->close(start);
             session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->context_mutex);
+            enif_mutex_unlock(args->conn_handle->contexts_mutex);
             return;
         }
     } else {
@@ -771,7 +771,7 @@ ASYNC_NIF_DECL(
             ASYNC_NIF_REPLY(__strerror_term(env, rc));
             start->close(start);
             session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->context_mutex);
+            enif_mutex_unlock(args->conn_handle->contexts_mutex);
             return;
         }
     }
@@ -779,7 +779,7 @@ ASYNC_NIF_DECL(
     if (!args->to_last) {
         if (!enif_inspect_binary(env, args->stop, &stop_key)) {
             ASYNC_NIF_REPLY(enif_make_badarg(env));
-            enif_mutex_unlock(args->conn_handle->context_mutex);
+            enif_mutex_unlock(args->conn_handle->contexts_mutex);
             return;
         }
     }
@@ -788,7 +788,7 @@ ASYNC_NIF_DECL(
         ASYNC_NIF_REPLY(__strerror_term(env, rc));
         start->close(start);
         session->close(session, NULL);
-        enif_mutex_unlock(args->conn_handle->context_mutex);
+        enif_mutex_unlock(args->conn_handle->contexts_mutex);
         return;
     }
     /* Position the stop cursor at the last record or the specified record. */
@@ -799,7 +799,7 @@ ASYNC_NIF_DECL(
             start->close(start);
             stop->close(stop);
             session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->context_mutex);
+            enif_mutex_unlock(args->conn_handle->contexts_mutex);
             return;
         }
     } else {
@@ -813,7 +813,7 @@ ASYNC_NIF_DECL(
             start->close(start);
             stop->close(stop);
             session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->context_mutex);
+            enif_mutex_unlock(args->conn_handle->contexts_mutex);
             return;
         }
     }
@@ -825,7 +825,7 @@ ASYNC_NIF_DECL(
     if (start) start->close(start);
     if (stop) stop->close(stop);
     if (session) session->close(session, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -862,13 +862,13 @@ ASYNC_NIF_DECL(
   { // work
 
     /* This call requires that there be no open cursors referencing the object. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_cursors_on(args->conn_handle, args->uri);
 
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
-      enif_mutex_unlock(args->conn_handle->context_mutex);
+      enif_mutex_unlock(args->conn_handle->contexts_mutex);
       return;
     }
 
@@ -880,13 +880,13 @@ ASYNC_NIF_DECL(
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-        enif_mutex_unlock(args->conn_handle->context_mutex);
+        enif_mutex_unlock(args->conn_handle->contexts_mutex);
 	return;
     }
 
     rc = session->upgrade(session, args->uri, (const char*)config.data);
     (void)session->close(session, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -924,13 +924,13 @@ ASYNC_NIF_DECL(
   { // work
 
     /* This call requires that there be no open cursors referencing the object. */
-    enif_mutex_lock(args->conn_handle->context_mutex);
+    enif_mutex_lock(args->conn_handle->contexts_mutex);
     __close_all_sessions(args->conn_handle);
 
     ErlNifBinary config;
     if (!enif_inspect_binary(env, args->config, &config)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
-      enif_mutex_unlock(args->conn_handle->context_mutex);
+      enif_mutex_unlock(args->conn_handle->contexts_mutex);
       return;
     }
 
@@ -942,13 +942,13 @@ ASYNC_NIF_DECL(
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-        enif_mutex_unlock(args->conn_handle->context_mutex);
+        enif_mutex_unlock(args->conn_handle->contexts_mutex);
 	return;
     }
 
     rc = session->verify(session, args->uri, (const char*)config.data);
     (void)session->close(session, NULL);
-    enif_mutex_unlock(args->conn_handle->context_mutex);
+    enif_mutex_unlock(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -1823,36 +1823,36 @@ on_upgrade(ErlNifEnv *env, void **priv_data, void **old_priv_data, ERL_NIF_TERM 
 
 static ErlNifFunc nif_funcs[] =
 {
-    {"checkpoint_nif", 4, wterl_checkpoint},
-    {"conn_close_nif", 3, wterl_conn_close},
-    {"conn_open_nif", 5, wterl_conn_open},
-    {"create_nif", 5, wterl_create},
-    {"delete_nif", 5, wterl_delete},
-    {"drop_nif", 5, wterl_drop},
-    {"get_nif", 5, wterl_get},
-    {"put_nif", 6, wterl_put},
-    {"rename_nif", 6, wterl_rename},
-    {"salvage_nif", 5, wterl_salvage},
-    // TODO: {"txn_begin", 4, wterl_txn_begin},
-    // TODO: {"txn_commit", 4, wterl_txn_commit},
-    // TODO: {"txn_abort", 4, wterl_txn_abort},
-    {"truncate_nif", 7, wterl_truncate},
-    {"upgrade_nif", 5, wterl_upgrade},
-    {"verify_nif", 5, wterl_verify},
-    {"cursor_close_nif", 3, wterl_cursor_close},
-    {"cursor_insert_nif", 5, wterl_cursor_insert},
-    {"cursor_next_key_nif", 3, wterl_cursor_next_key},
-    {"cursor_next_nif", 3, wterl_cursor_next},
-    {"cursor_next_value_nif", 3, wterl_cursor_next_value},
-    {"cursor_open_nif", 5, wterl_cursor_open},
-    {"cursor_prev_key_nif", 3, wterl_cursor_prev_key},
-    {"cursor_prev_nif", 3, wterl_cursor_prev},
-    {"cursor_prev_value_nif", 3, wterl_cursor_prev_value},
-    {"cursor_remove_nif", 4, wterl_cursor_remove},
-    {"cursor_reset_nif", 3, wterl_cursor_reset},
-    {"cursor_search_near_nif", 4, wterl_cursor_search_near},
-    {"cursor_search_nif", 4, wterl_cursor_search},
-    {"cursor_update_nif", 5, wterl_cursor_update},
+    {"checkpoint_nif", 3, wterl_checkpoint},
+    {"conn_close_nif", 2, wterl_conn_close},
+    {"conn_open_nif", 4, wterl_conn_open},
+    {"create_nif", 4, wterl_create},
+    {"delete_nif", 4, wterl_delete},
+    {"drop_nif", 4, wterl_drop},
+    {"get_nif", 4, wterl_get},
+    {"put_nif", 5, wterl_put},
+    {"rename_nif", 5, wterl_rename},
+    {"salvage_nif", 4, wterl_salvage},
+    // TODO: {"txn_begin", 3, wterl_txn_begin},
+    // TODO: {"txn_commit", 3, wterl_txn_commit},
+    // TODO: {"txn_abort", 3, wterl_txn_abort},
+    {"truncate_nif", 6, wterl_truncate},
+    {"upgrade_nif", 4, wterl_upgrade},
+    {"verify_nif", 4, wterl_verify},
+    {"cursor_close_nif", 2, wterl_cursor_close},
+    {"cursor_insert_nif", 4, wterl_cursor_insert},
+    {"cursor_next_key_nif", 2, wterl_cursor_next_key},
+    {"cursor_next_nif", 2, wterl_cursor_next},
+    {"cursor_next_value_nif", 2, wterl_cursor_next_value},
+    {"cursor_open_nif", 4, wterl_cursor_open},
+    {"cursor_prev_key_nif", 2, wterl_cursor_prev_key},
+    {"cursor_prev_nif", 2, wterl_cursor_prev},
+    {"cursor_prev_value_nif", 2, wterl_cursor_prev_value},
+    {"cursor_remove_nif", 3, wterl_cursor_remove},
+    {"cursor_reset_nif", 2, wterl_cursor_reset},
+    {"cursor_search_near_nif", 3, wterl_cursor_search_near},
+    {"cursor_search_nif", 3, wterl_cursor_search},
+    {"cursor_update_nif", 4, wterl_cursor_update},
 };
 
 ERL_NIF_INIT(wterl, nif_funcs, &on_load, &on_reload, &on_upgrade, &on_unload);

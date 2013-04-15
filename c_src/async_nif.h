@@ -33,6 +33,7 @@ extern "C" {
 #endif
 
 #define ASYNC_NIF_MAX_WORKERS 128
+#define ASYNC_NIF_WORKER_QUEUE_SIZE 1024
 
 struct async_nif_req_entry {
   ERL_NIF_TERM ref, *argv;
@@ -48,10 +49,8 @@ struct async_nif_work_queue {
   ErlNifMutex *reqs_mutex;
   ErlNifCond *reqs_cnd;
   unsigned int depth;
-#ifdef ASYNC_NIF_STATS
-  struct async_stats stats;
-#endif
   STAILQ_HEAD(reqs, async_nif_req_entry) reqs;
+  // TODO: struct async_nif_req_entry items[ASYNC_NIF_WORKER_QUEUE_SIZE];
 };
 
 struct async_nif_worker_entry {
@@ -81,12 +80,10 @@ struct async_nif_state {
     struct decl ## _args *args = &on_stack_args;                        \
     struct decl ## _args *copy_of_args;                                 \
     struct async_nif_req_entry *req = NULL;                             \
-    int scheduler_id = 0;                                               \
     ErlNifEnv *new_env = NULL;                                          \
     /* argv[0] is a ref used for selective recv */                      \
-    /* argv[1] is the current Erlang (scheduler_id - 1) */              \
-    const ERL_NIF_TERM *argv = argv_in + 2;                             \
-    argc -= 2;                                                          \
+    const ERL_NIF_TERM *argv = argv_in + 1;                             \
+    argc -= 1;                                                          \
     struct async_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env); \
     if (async_nif->shutdown)						\
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
@@ -118,8 +115,7 @@ struct async_nif_state {
     req->args = (void*)copy_of_args;                                    \
     req->fn_work = (void (*)(ErlNifEnv *, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *))fn_work_ ## decl ; \
     req->fn_post = (void (*)(void *))fn_post_ ## decl;                  \
-    enif_get_int(env, argv_in[1], &scheduler_id);                       \
-    return async_nif_enqueue_req(async_nif, req, scheduler_id);         \
+    return async_nif_enqueue_req(async_nif, req);                       \
   }
 
 #define ASYNC_NIF_INIT(name)                                    \
@@ -155,7 +151,7 @@ struct async_nif_state {
 #define ASYNC_NIF_REPLY(msg) enif_send(NULL, pid, env, enif_make_tuple2(env, ref, msg))
 
 static ERL_NIF_TERM
-async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_entry *req, int scheduler_id)
+async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_entry *req)
 {
   /* If we're shutting down return an error term and ignore the request. */
   if (async_nif->shutdown) {
@@ -163,27 +159,26 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 			    enif_make_atom(req->env, "shutdown"));
   }
 
-  /* We manage one request queue per-scheduler thread running in the Erlang VM.
-     Each request is placed onto the queue based on which schdeuler thread
-     was processing the request.  Work queues are balanced only if requests
-     arrive from a sufficiently random distribution of Erlang scheduler
-     threads. */
   unsigned int qid = async_nif->next_q; // Keep a local to avoid the race.
   struct async_nif_work_queue *q = &async_nif->queues[qid];
-  if (q->depth > 10)
-  async_nif->next_q = (qid + 1) % async_nif->num_queues;
+  while (q->depth == ASYNC_NIF_WORKER_QUEUE_SIZE) {
+      qid = (qid + 1) % async_nif->num_queues;
+      q = &async_nif->queues[qid];
+  }
+  /* TODO:
+  if (q->avg_latency > 5) {
+      async_nif->next_q = (qid + 1) % async_nif->num_queues;
+  }
+  */
 
   /* Otherwise, add the request to the work queue. */
   enif_mutex_lock(q->reqs_mutex);
   STAILQ_INSERT_TAIL(&q->reqs, req, entries);
   q->depth++;
-  //fprintf(stderr, "enqueued %d (%d)\r\n", qid, async_nif->req_count); fflush(stderr);
-
   /* Build the term before releasing the lock so as not to race on the use of
-     the req pointer. */
+     the req pointer (which will soon become invalid). */
   ERL_NIF_TERM reply = enif_make_tuple2(req->env, enif_make_atom(req->env, "ok"),
-                          enif_make_tuple2(req->env, enif_make_atom(req->env, "enqueued"),
-					   enif_make_int(req->env, q->depth)));
+                          enif_make_atom(req->env, "enqueued"));
   enif_mutex_unlock(q->reqs_mutex);
   enif_cond_signal(q->reqs_cnd);
   return reply;
@@ -212,14 +207,17 @@ async_nif_worker_fn(void *arg)
       enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
       goto check_again_for_work;
     } else {
-      /* At this point, `req` is ours to execute and we hold the reqs_mutex lock. */
+      /* At this point the next req is ours to process and we hold the
+         reqs_mutex lock. */
 
       do {
         /* Take the request off the queue. */
-        //fprintf(stderr, "worker %d queue %d performing req (%d)\r\n", worker_id, (worker_id % async_nif->num_queues), async_nif->req_count); fflush(stderr);
         STAILQ_REMOVE(&q->reqs, req, async_nif_req_entry, entries);
         q->depth--;
         enif_mutex_unlock(q->reqs_mutex);
+
+        /* Wake up another thread working on this queue. */
+        enif_cond_signal(q->reqs_cnd);
 
         /* Finally, do the work. */
         req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
@@ -233,7 +231,6 @@ async_nif_worker_fn(void *arg)
         if (STAILQ_EMPTY(&q->reqs)) {
             req = NULL;
         } else {
-            enif_cond_signal(q->reqs_cnd);
             enif_mutex_lock(q->reqs_mutex);
             req = STAILQ_FIRST(&q->reqs);
 	}
