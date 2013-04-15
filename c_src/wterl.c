@@ -700,6 +700,7 @@ ASYNC_NIF_DECL(
     }
     args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[4]);
     enif_keep_resource((void*)args->conn_handle);
+    affinity = args->uri;
   },
   { // work
 
@@ -979,6 +980,7 @@ ASYNC_NIF_DECL(
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->conn_handle);
+    affinity = args->uri;
   },
   { // work
 
@@ -1040,6 +1042,7 @@ ASYNC_NIF_DECL(
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->conn_handle);
+    affinity = args->uri;
   },
   { // work
 
@@ -1119,6 +1122,7 @@ ASYNC_NIF_DECL(
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     args->value = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
     enif_keep_resource((void*)args->conn_handle);
+    affinity = args->uri;
   },
   { // work
 
@@ -1189,6 +1193,7 @@ ASYNC_NIF_DECL(
     }
     args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->conn_handle);
+    affinity = args->uri;
   },
   { // work
 
