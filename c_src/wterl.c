@@ -154,7 +154,7 @@ __close_all_sessions(WterlConnHandle *conn_handle)
  * Note: always call within enif_mutex_lock/unlock(conn_handle->contexts_mutex)
  */
 void
-__close_cursors_on(WterlConnHandle *conn_handle, const char *uri) // TODO: race?
+__close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
 {
     int i;
     for (i = 0; i < ASYNC_NIF_MAX_WORKERS; i++) {
@@ -232,9 +232,11 @@ __strerror_term(ErlNifEnv* env, int rc)
     if (rc == WT_NOTFOUND) {
 	return ATOM_NOT_FOUND;
     } else {
-        /* TODO: The string for the error message provided by strerror() for
-           any given errno value may be different across platforms, return
-           {atom, string} and may have been localized too. */
+        /* We return the errno value as well as the message here because the
+           error message provided by strerror() for differ across platforms
+           and/or may be localized to any given language (i18n).  Use the errno
+           atom rather than the message when matching in Erlang.  You've been
+           warned. */
 	return enif_make_tuple2(env, ATOM_ERROR,
                                 enif_make_tuple2(env,
                                                  enif_make_atom(env, erl_errno_id(rc)),
@@ -282,7 +284,6 @@ ASYNC_NIF_DECL(
         ASYNC_NIF_REPLY(enif_make_badarg(env));
         return;
     }
-    //dprint("c: %d // %s\ns: %d // %s", config.size, (char *)config.data, (char *)session_config.data, session_config.size);
     int rc = wiredtiger_open(args->homedir, NULL, config.data[0] != 0 ? (const char*)config.data : NULL, &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
@@ -462,14 +463,10 @@ ASYNC_NIF_DECL(
         enif_mutex_unlock(args->conn_handle->contexts_mutex);
 	return;
     }
-    /* Note: we must first close all cursors referencing this object or this
-       operation will fail with EBUSY(16) "Device or resource busy". */
-
-    // TODO: add a condition for this object name, test for that in cursor
-    // create, pause the async nif layer's workers, find and close open cursors
-    // on this table, restart worker threads, do the drop, remove the condition
-    // variable (read: punt for now, expect a lot of EBUSYs)
-
+    /* Note: we locked the context mutex and called __close_cursors_on()
+       earlier so that we are sure that before we call into WiredTiger we have
+       first closed all open cursors referencing this object.  Failure to do
+       this will result in EBUSY(16) "Device or resource busy". */
     rc = session->drop(session, args->uri, (const char*)config.data);
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->contexts_mutex);
@@ -532,9 +529,10 @@ ASYNC_NIF_DECL(
 	return;
     }
 
-    /* Note: we must first close all cursors referencing this object or this
-       operation will fail with EBUSY(16) "Device or resource busy". */
-    // TODO: see drop's note, same goes here.
+    /* Note: we locked the context mutex and called __close_cursors_on()
+       earlier so that we are sure that before we call into WiredTiger we have
+       first closed all open cursors referencing this object.  Failure to do
+       this will result in EBUSY(16) "Device or resource busy". */
     rc = session->rename(session, args->oldname, args->newname, (const char*)config.data);
     (void)session->close(session, NULL);
     enif_mutex_unlock(args->conn_handle->contexts_mutex);
@@ -716,10 +714,10 @@ ASYNC_NIF_DECL(
       return;
     }
 
-    /* We create, use and discard a WT_SESSION and up to two WT_CURSORS here because
-       a) we'll have to close out other, shared cursors on this table first and b) we
-       don't anticipate doing this operation frequently enough to impact performance. */
-    // TODO: see drop's note, same goes here.
+    /* Note: we locked the context mutex and called __close_cursors_on()
+       earlier so that we are sure that before we call into WiredTiger we have
+       first closed all open cursors referencing this object.  Failure to do
+       this will result in EBUSY(16) "Device or resource busy". */
     WT_CONNECTION *conn = args->conn_handle->conn;
     WT_SESSION *session = NULL;
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
@@ -1489,6 +1487,8 @@ ASYNC_NIF_DECL(
  * Position the cursor at the record matching the key.
  *
  * argv[0]    WterlCursorHandle resource
+ * argv[1]    key as an Erlang binary
+ * argv[2]    boolean, when false the cursor will be reset
  */
 ASYNC_NIF_DECL(
   wterl_cursor_search,
@@ -1496,15 +1496,22 @@ ASYNC_NIF_DECL(
 
     WterlCursorHandle *cursor_handle;
     ERL_NIF_TERM key;
+    int scanning;
   },
   { // pre
 
-    if (!(argc == 2 &&
+    static ERL_NIF_TERM ATOM_TRUE = 0;
+    if (ATOM_TRUE == 0)
+        enif_make_atom(env, "true");
+
+    if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
-          enif_is_binary(env, argv[1]))) {
+          enif_is_binary(env, argv[1]) &&
+          enif_is_atom(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->scanning = (enif_is_identical(argv[2], ATOM_TRUE)) ? 1 : 0;
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
@@ -1522,6 +1529,8 @@ ASYNC_NIF_DECL(
     cursor->set_key(cursor, &item_key);
 
     ASYNC_NIF_REPLY(__cursor_value_ret(env, cursor, cursor->search(cursor)));
+    if (!args->scanning)
+        (void)cursor->reset(cursor);
   },
   { // post
 
@@ -1533,6 +1542,8 @@ ASYNC_NIF_DECL(
  * that would be adjacent.
  *
  * argv[0]    WterlCursorHandle resource
+ * argv[1]    key as an Erlang binary
+ * argv[2]    boolean, when false the cursor will be reset
  */
 ASYNC_NIF_DECL(
   wterl_cursor_search_near,
@@ -1540,15 +1551,22 @@ ASYNC_NIF_DECL(
 
     WterlCursorHandle *cursor_handle;
     ERL_NIF_TERM key;
+    int scanning;
   },
   { // pre
 
-    if (!(argc == 2 &&
+    static ERL_NIF_TERM ATOM_TRUE = 0;
+    if (ATOM_TRUE == 0)
+        enif_make_atom(env, "true");
+
+    if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_cursor_RESOURCE, (void**)&args->cursor_handle) &&
-          enif_is_binary(env, argv[1]))) {
+          enif_is_binary(env, argv[1]) &&
+          enif_is_atom(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
+    args->scanning = (enif_is_identical(argv[2], ATOM_TRUE)) ? 1 : 0;
     enif_keep_resource((void*)args->cursor_handle);
   },
   { // work
@@ -1566,9 +1584,25 @@ ASYNC_NIF_DECL(
     item_key.size = key.size;
     cursor->set_key(cursor, &item_key);
 
-    // TODO: We currently ignore the less-than, greater-than or equals-to
-    // return information from the cursor.search_near method.
-    ASYNC_NIF_REPLY(__cursor_value_ret(env, cursor, cursor->search_near(cursor, &exact)));
+    int rc = cursor->search_near(cursor, &exact);
+    ERL_NIF_TERM reply;
+    if (rc == 0) {
+        if (exact == 0) {
+            /* an exact match */
+            reply = enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "match"));
+        } else if (exact < 0) {
+            /* cursor now positioned at the next smaller key */
+            reply = enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "lt"));
+        } else if (exact > 0) {
+            /* cursor now positioned at the next larger key */
+            reply = enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "gt"));
+        }
+        ASYNC_NIF_REPLY(reply);
+    } else {
+        ASYNC_NIF_REPLY(__strerror_term(env, rc));
+    }
+    if (!args->scanning)
+        (void)cursor->reset(cursor);
   },
   { // post
 
@@ -1661,6 +1695,8 @@ ASYNC_NIF_DECL(
     item_value.size = value.size;
     cursor->set_value(cursor, &item_value);
     int rc = cursor->insert(cursor);
+    if (rc == 0)
+        rc = cursor->reset(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -1719,6 +1755,8 @@ ASYNC_NIF_DECL(
     item_value.size = value.size;
     cursor->set_value(cursor, &item_value);
     int rc = cursor->update(cursor);
+    if (rc == 0)
+        rc = cursor->reset(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -1764,6 +1802,8 @@ ASYNC_NIF_DECL(
     item_key.size = key.size;
     cursor->set_key(cursor, &item_key);
     int rc = cursor->remove(cursor);
+    if (rc == 0)
+        rc = cursor->reset(cursor);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
   { // post
@@ -1805,19 +1845,19 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 static int
 on_reload(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 {
-    return 0; // TODO: determine what should be done here, if anything...
+    return 0; // TODO: Determine what should be done here.
 }
 
 static void
 on_unload(ErlNifEnv *env, void *priv_data)
 {
-    ASYNC_NIF_UNLOAD(wterl, env);
+    ASYNC_NIF_UNLOAD(wterl, env); // TODO: Review/test this.
 }
 
 static int
 on_upgrade(ErlNifEnv *env, void **priv_data, void **old_priv_data, ERL_NIF_TERM load_info)
 {
-    ASYNC_NIF_UPGRADE(wterl, env);
+    ASYNC_NIF_UPGRADE(wterl, env); // TODO: Review/test this.
     return 0;
 }
 
@@ -1850,8 +1890,8 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_prev_value_nif", 2, wterl_cursor_prev_value},
     {"cursor_remove_nif", 3, wterl_cursor_remove},
     {"cursor_reset_nif", 2, wterl_cursor_reset},
-    {"cursor_search_near_nif", 3, wterl_cursor_search_near},
-    {"cursor_search_nif", 3, wterl_cursor_search},
+    {"cursor_search_near_nif", 4, wterl_cursor_search_near},
+    {"cursor_search_nif", 4, wterl_cursor_search},
     {"cursor_update_nif", 4, wterl_cursor_update},
 };
 

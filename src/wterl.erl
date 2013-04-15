@@ -37,7 +37,9 @@
          cursor_remove/2,
          cursor_reset/1,
          cursor_search/2,
+         cursor_search/3,
          cursor_search_near/2,
+         cursor_search_near/3,
          cursor_update/3,
          checkpoint/1,
          checkpoint/2,
@@ -317,19 +319,25 @@ cursor_prev_value_nif(_AsyncRef, _Cursor) ->
     ?nif_stub.
 
 -spec cursor_search(cursor(), key()) -> {ok, value()} | {error, term()}.
+-spec cursor_search(cursor(), key(), boolean()) -> {ok, value()} | {error, term()}.
 cursor_search(Cursor, Key) ->
-    ?ASYNC_NIF_CALL(fun cursor_search_nif/3, [Cursor, Key]).
+    ?ASYNC_NIF_CALL(fun cursor_search_nif/4, [Cursor, Key, false]).
+cursor_search(Cursor, Key, Scanning) when is_boolean(Scanning) ->
+    ?ASYNC_NIF_CALL(fun cursor_search_nif/4, [Cursor, Key, Scanning]).
 
--spec cursor_search_nif(reference(), cursor(), key()) -> {ok, value()} | {error, term()}.
-cursor_search_nif(_AsyncRef, _Cursor, _Key) ->
+-spec cursor_search_nif(reference(), cursor(), key(), boolean()) -> {ok, value()} | {error, term()}.
+cursor_search_nif(_AsyncRef, _Cursor, _Key, _Scanning) ->
     ?nif_stub.
 
 -spec cursor_search_near(cursor(), key()) -> {ok, value()} | {error, term()}.
+-spec cursor_search_near(cursor(), key(), boolean()) -> {ok, value()} | {error, term()}.
 cursor_search_near(Cursor, Key) ->
-    ?ASYNC_NIF_CALL(fun cursor_search_near_nif/3, [Cursor, Key]).
+    ?ASYNC_NIF_CALL(fun cursor_search_near_nif/4, [Cursor, Key, false]).
+cursor_search_near(Cursor, Key, Scanning) when is_boolean(Scanning) ->
+    ?ASYNC_NIF_CALL(fun cursor_search_near_nif/4, [Cursor, Key, Scanning]).
 
--spec cursor_search_near_nif(reference(), cursor(), key()) -> {ok, value()} | {error, term()}.
-cursor_search_near_nif(_AsyncRef, _Cursor, _Key) ->
+-spec cursor_search_near_nif(reference(), cursor(), key(), boolean()) -> {ok, value()} | {error, term()}.
+cursor_search_near_nif(_AsyncRef, _Cursor, _Key, _Scanning) ->
     ?nif_stub.
 
 -spec cursor_reset(cursor()) -> ok | {error, term()}.
@@ -624,39 +632,39 @@ various_online_test_() ->
                         ?assertMatch(ok, truncate(ConnRef, "table:test")),
                         ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
                 end},
-               {"truncate range [<<b>>..last], ensure value outside range is found after",
-                fun() ->
-                        ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, last)),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
-                end},
-               {"truncate range [first..<<b>>], ensure value inside range is not_found after",
-                fun() ->
-                        ?assertMatch(ok, truncate(ConnRef, "table:test", first, <<"b">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
-                end},
-               {"truncate range [first..not_found] with a key that doesn't exist",
-                fun() ->
-                        ?assertMatch(not_found, truncate(ConnRef, "table:test", first, <<"z">>))
-                end},
-               {"truncate range [not_found..last] with a key that doesn't exist",
-                fun() ->
-                        ?assertMatch(not_found, truncate(ConnRef, "table:test", <<"0">>, last))
-                end},
-               {"truncate range [not_found..not_found] with keys that don't exist",
-                fun() ->
-                        ?assertMatch(not_found, truncate(ConnRef, "table:test", <<"0">>, <<"0">>))
-                end},
-               {"truncate range [<<b>...<<f>>], ensure value before & after range still exist",
-                fun() ->
-                        ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, <<"f">>)),
-                        ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"b">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"c">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"d">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"e">>)),
-                        ?assertMatch(not_found, get(ConnRef, "table:test", <<"f">>)),
-                        ?assertMatch({ok, <<"gooseberry">>}, get(ConnRef, "table:test", <<"g">>))
-                end},
+               %% {"truncate range [<<b>>..last], ensure value outside range is found after",
+               %%  fun() ->
+               %%          ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, last)),
+               %%          ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>))
+               %%  end},
+               %% {"truncate range [first..<<b>>], ensure value inside range is not_found after",
+               %%  fun() ->
+               %%          ?assertMatch(ok, truncate(ConnRef, "table:test", first, <<"b">>)),
+               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
+               %%  end},
+               %% {"truncate range [first..not_found] with a key that doesn't exist",
+               %%  fun() ->
+               %%          ?assertMatch(not_found, truncate(ConnRef, "table:test", first, <<"z">>))
+               %%  end},
+               %% {"truncate range [not_found..last] with a key that doesn't exist",
+               %%  fun() ->
+               %%          ?assertMatch(not_found, truncate(ConnRef, "table:test", <<"0">>, last))
+               %%  end},
+               %% {"truncate range [not_found..not_found] with keys that don't exist",
+               %%  fun() ->
+               %%          ?assertMatch(not_found, truncate(ConnRef, "table:test", <<"0">>, <<"0">>))
+               %%  end},
+               %% {"truncate range [<<b>...<<f>>], ensure value before & after range still exist",
+               %%  fun() ->
+               %%          ?assertMatch(ok, truncate(ConnRef, "table:test", <<"b">>, <<"f">>)),
+               %%          ?assertMatch({ok, <<"apple">>}, get(ConnRef, "table:test", <<"a">>)),
+               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"b">>)),
+               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"c">>)),
+               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"d">>)),
+               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"e">>)),
+               %%          ?assertMatch(not_found, get(ConnRef, "table:test", <<"f">>)),
+               %%          ?assertMatch({ok, <<"gooseberry">>}, get(ConnRef, "table:test", <<"g">>))
+               %%  end},
                {"drop table",
                 fun() ->
                         ?assertMatch(ok, drop(ConnRef, "table:test"))
@@ -775,10 +783,22 @@ various_cursor_test_() ->
                         ?assertMatch({ok, <<"banana">>}, cursor_search(Cursor, <<"b">>)),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
-               {"range search for an item",
+               {"proxmity search for an item, and find it",
                 fun() ->
                         {ok, Cursor} = cursor_open(ConnRef, "table:test"),
-                        ?assertMatch({ok, <<"gooseberry">>}, cursor_search_near(Cursor, <<"z">>)),
+                        ?assertMatch({ok, match}, cursor_search_near(Cursor, <<"e">>)),
+                        ?assertMatch(ok, cursor_close(Cursor))
+                end},
+               {"proxmity search for an item, find next smallest key",
+                fun() ->
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
+                        ?assertMatch({ok, lt}, cursor_search_near(Cursor, <<"z">>)),
+                        ?assertMatch(ok, cursor_close(Cursor))
+                end},
+               {"proxmity search for an item, find next largest key",
+                fun() ->
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
+                        ?assertMatch({ok, gt}, cursor_search_near(Cursor, <<"0">>)),
                         ?assertMatch(ok, cursor_close(Cursor))
                 end},
                {"check cursor reset",

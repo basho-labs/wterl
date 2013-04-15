@@ -330,14 +330,13 @@ callback(_Ref, _Msg, State) ->
 %% ===================================================================
 
 %% @private
-max_sessions(_Config) -> % TODO:
-    8192.
-    %% RingSize =
-    %%     case app_helper:get_prop_or_env(ring_creation_size, Config, riak_core) of
-    %%         undefined -> 1024;
-    %%         Size -> Size
-    %%     end,
-    %% 2 * (RingSize * erlang:system_info(schedulers)).
+max_sessions(Config) -> % TODO: review this logic
+    RingSize =
+        case app_helper:get_prop_or_env(ring_creation_size, Config, riak_core) of
+            undefined -> 1024;
+            Size -> Size
+        end,
+    10 * (RingSize * erlang:system_info(schedulers)).
 
 %% @private
 establish_utility_cursors(Connection, Table) ->
@@ -364,6 +363,14 @@ establish_connection(Config, Type) ->
             ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
 
             %% WT Connection Options:
+            %% NOTE: LSM auto-checkpoints, so we don't have too.
+            CheckpointSetting =
+                case Type =:= "lsm" of
+                    true ->
+                        [];
+                    false ->
+                        app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 10}])
+                end,
 	    RequestedCacheSize = app_helper:get_prop_or_env(cache_size, Config, wterl),
             ConnectionOpts =
                 orddict:from_list(
@@ -374,13 +381,11 @@ establish_connection(Config, Type) ->
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
-                    %% NOTE: LSM auto-checkpoints, so we don't have too.
-                    % TODO: [wterl:config_value(checkpoint, Config, [{wait, 10}]) || Type =:= "table"],
                     wterl:config_value(verbose, Config, [ 
                          %"ckpt" "block", "shared_cache", "evictserver", "fileops",
                          %"hazard", "mutex", "read", "readserver", "reconcile",
                          %"salvage", "verify", "write", "evict", "lsm"
-                         ]) ] ++ proplists:get_value(wterl, Config, [])), % sec
+                         ]) ] ++ CheckpointSetting ++ proplists:get_value(wterl, Config, [])), % sec
 
 
 
