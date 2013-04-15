@@ -94,7 +94,7 @@ start(Partition, Config) ->
         end,
     case AppStart of
         ok ->
-            Type = wterl:config_value(type, Config, "lsm"),
+            {type, Type} = wterl:config_value(type, Config, "lsm"),
             {ok, Connection} = establish_connection(Config, Type),
             Table = Type ++ ":wt" ++ integer_to_list(Partition),
             TableOpts =
@@ -375,12 +375,14 @@ establish_connection(Config, Type) ->
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
                     %% NOTE: LSM auto-checkpoints, so we don't have too.
-                    [wterl:config_value(checkpoint, Config, [{wait, 10}]) || Type =:= "table"],
+                    % TODO: [wterl:config_value(checkpoint, Config, [{wait, 10}]) || Type =:= "table"],
                     wterl:config_value(verbose, Config, [ 
                          %"ckpt" "block", "shared_cache", "evictserver", "fileops",
                          %"hazard", "mutex", "read", "readserver", "reconcile",
                          %"salvage", "verify", "write", "evict", "lsm"
                          ]) ] ++ proplists:get_value(wterl, Config, [])), % sec
+
+
 
             %% WT Session Options:
             SessionOpts = [{isolation, "snapshot"}],
