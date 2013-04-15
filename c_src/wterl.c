@@ -1201,7 +1201,6 @@ ASYNC_NIF_DECL(
     /* We create a separate session here to ensure that operations are thread safe. */
     WT_CONNECTION *conn = args->conn_handle->conn;
     WT_SESSION *session = NULL;
-    //dprint("cursor open: %s", (char *)args->conn_handle->session_config);
     int rc = conn->open_session(conn, NULL, args->conn_handle->session_config, &session);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
@@ -1578,26 +1577,24 @@ ASYNC_NIF_DECL(
       return;
     }
     WT_ITEM item_key;
-    int exact;
+    int exact = 0;
 
     item_key.data = key.data;
     item_key.size = key.size;
     cursor->set_key(cursor, &item_key);
 
     int rc = cursor->search_near(cursor, &exact);
-    ERL_NIF_TERM reply;
     if (rc == 0) {
         if (exact == 0) {
             /* an exact match */
-            reply = enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "match"));
+            ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "match")));
         } else if (exact < 0) {
             /* cursor now positioned at the next smaller key */
-            reply = enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "lt"));
+            ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "lt")));
         } else if (exact > 0) {
             /* cursor now positioned at the next larger key */
-            reply = enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "gt"));
+            ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, enif_make_atom(env, "gt")));
         }
-        ASYNC_NIF_REPLY(reply);
     } else {
         ASYNC_NIF_REPLY(__strerror_term(env, rc));
     }
