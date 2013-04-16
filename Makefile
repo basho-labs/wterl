@@ -20,8 +20,9 @@ update-deps:
 	c_src/build_deps.sh update-deps
 	@$(REBAR) update-deps
 
-c_src/wterl.o: c_src/async_nif.h
-	touch c_src/wterl.c
+c_src/wterl.c: c_src/async_nif.h
+
+c_src/wterl.o: c_src/wterl.c
 
 ebin/app_helper.beam:
 	@echo You need to:
