@@ -134,9 +134,10 @@ __close_all_sessions(WterlConnHandle *conn_handle)
             khiter_t itr;
             for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
                 if (kh_exist(h, itr)) {
-                    // WT_CURSOR *cursor = kh_val(h, itr);
-                    // cursor->close(cursor);
+                    WT_CURSOR *cursor = kh_val(h, itr);
                     char *key = (char *)kh_key(h, itr);
+                    cursor->close(cursor);
+                    kh_del(cursors, h, itr);
                     enif_free(key);
                 }
             }
@@ -287,6 +288,10 @@ ASYNC_NIF_DECL(
     int rc = wiredtiger_open(args->homedir, NULL, config.data[0] != 0 ? (const char*)config.data : NULL, &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
+      if (!conn_handle) {
+          ASYNC_NIF_REPLY(__strerror_term(env, ENOMEM));
+          return;
+      }
       if (session_config.size > 1) {
           char *sc = enif_alloc(session_config.size);
           if (!sc) {
