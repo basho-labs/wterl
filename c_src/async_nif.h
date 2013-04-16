@@ -124,20 +124,20 @@ struct async_nif_state {
   struct decl ## _args frame;                                           \
   static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) work_block \
   static void fn_post_ ## decl (struct decl ## _args *args) {           \
-    do post_block while(0);						\
+    do post_block while(0);                                             \
   }                                                                     \
   static ERL_NIF_TERM decl(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv_in[]) { \
     struct decl ## _args on_stack_args;                                 \
     struct decl ## _args *args = &on_stack_args;                        \
     struct decl ## _args *copy_of_args;                                 \
-    struct async_nif_req_entry *req;                                    \
+    struct async_nif_req_entry *req = NULL;                             \
     const char *affinity = NULL;                                        \
     ErlNifEnv *new_env = NULL;                                          \
     /* argv[0] is a ref used for selective recv */                      \
     const ERL_NIF_TERM *argv = argv_in + 1;                             \
     argc -= 1;                                                          \
     struct async_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env); \
-    if (async_nif->shutdown)						\
+    if (async_nif->shutdown)                                            \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "shutdown"));         \
     if (!(new_env = enif_alloc_env())) {                                \
@@ -152,6 +152,7 @@ struct async_nif_state {
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "enomem"));           \
     }                                                                   \
+    memset(req, 0, sizeof(struct async_nif_req_entry));                 \
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_ ## decl (args);                                          \
@@ -165,11 +166,12 @@ struct async_nif_state {
     enif_self(env, &req->pid);                                          \
     req->args = (void*)copy_of_args;                                    \
     req->fn_work = (void (*)(ErlNifEnv *, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *))fn_work_ ## decl ; \
-    req->fn_post = (void (*)(void *))fn_post_ ## decl;                 \
     unsigned int h = 0;                                                \
     if (affinity)                                                      \
         h = async_nif_str_hash_func(affinity) % async_nif->num_queues; \
-    return async_nif_enqueue_req(async_nif, req, h);                   \
+    ERL_NIF_TERM reply = async_nif_enqueue_req(async_nif, req, h);     \
+    req->fn_post = (void (*)(void *))fn_post_ ## decl;                 \
+    return reply;                                                      \
   }
 
 #define ASYNC_NIF_INIT(name)                                            \
@@ -223,7 +225,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* If we're shutting down return an error term and ignore the request. */
   if (async_nif->shutdown) {
     ERL_NIF_TERM reply = enif_make_tuple2(req->env, enif_make_atom(req->env, "error"),
-			    enif_make_atom(req->env, "shutdown"));
+                            enif_make_atom(req->env, "shutdown"));
     enif_free(req->args);
     enif_free_env(req->env);
     enif_free(req);
@@ -296,7 +298,7 @@ async_nif_worker_fn(void *arg)
         enif_free_env(req->env);
         enif_free(req);
 
-	/* Continue working if more requests are in the queue, otherwise wait
+        /* Continue working if more requests are in the queue, otherwise wait
            for new work to arrive. */
         if (fifo_q_empty(reqs, q->reqs))
             req = NULL;
