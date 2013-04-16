@@ -91,14 +91,14 @@ case "$1" in
                 (cd $BASEDIR/wiredtiger && git checkout $WT_VSN || exit 1)
             else
                 git clone -b ${WT_BRANCH} --single-branch ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH || exit 1)
+                (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)
             fi
             mv wiredtiger $WT_DIR || exit 1
         fi
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
         (cd $BASEDIR/$WT_DIR
-            [ -e $BASEDIR/wiredtiger-*.patch ] && \
-                (patch -p1 --forward < $BASEDIR/wiredtiger-*.patch || exit 1 )
+            [ -e $BASEDIR/wiredtiger-build.patch ] && \
+                (patch -p1 --forward < $BASEDIR/wiredtiger-build.patch || exit 1 )
             ./autogen.sh || exit 1
             cd ./build_posix || exit 1
             [ -e Makefile ] && $MAKE distclean
@@ -112,9 +112,9 @@ case "$1" in
         # Snappy
         [ -e snappy-$SNAPPY_VSN.tar.gz ] || (echo "Missing Snappy ($SNAPPY_VSN) source package" && exit 1)
         [ -d $BASEDIR/$SNAPPY_DIR ] || tar -xzf snappy-$SNAPPY_VSN.tar.gz
-        [ -e $BASEDIR/snappy-*.patch ] && \
+        [ -e $BASEDIR/snappy-build.patch ] && \
             (cd $BASEDIR/$SNAPPY_DIR || exit 1
-             patch -p1 --forward < $BASEDIR/snappy-*.patch || exit 1)
+             patch -p1 --forward < $BASEDIR/snappy-build.patch || exit 1)
         (cd $BASEDIR/$SNAPPY_DIR || exit 1
             ./configure --with-pic \
                         --disable-shared \
@@ -124,9 +124,9 @@ case "$1" in
         # BZip2
         [ -e bzip2-$BZIP2_VSN.tar.gz  ] || (echo "Missing bzip2 ($BZIP2_VSN) source package" && exit 1)
         [ -d $BASEDIR/$BZIP2_DIR ] || tar -xzf bzip2-$BZIP2_VSN.tar.gz
-        [ -e $BASEDIR/bzip2-*.patch ] && \
+        [ -e $BASEDIR/bzip2-build.patch ] && \
             (cd $BASEDIR/$BZIP2_DIR || exit 1
-             patch -p1 --forward < $BASEDIR/bzip2-*.patch || exit 1)
+             patch -p1 --forward < $BASEDIR/bzip2-build.patch || exit 1)
         ;;
 
     *)
