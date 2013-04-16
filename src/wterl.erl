@@ -63,7 +63,7 @@
          verify/2,
          verify/3,
          config_value/3,
-	 priv_dir/0,
+         priv_dir/0,
          fold_keys/3,
          fold/3]).
 
@@ -95,8 +95,8 @@ nif_stub_error(Line) ->
 -spec init() -> ok | {error, any()}.
 init() ->
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-		    [{wterl, "07061ed6e8252543c2f06b81a646eca6945cc558"},
-		     {wiredtiger, "6f7a4b961c744bfb21f0c21d4c28c2d162400f1b"}]).
+                    [{wterl, "07061ed6e8252543c2f06b81a646eca6945cc558"},
+                     {wiredtiger, "6f7a4b961c744bfb21f0c21d4c28c2d162400f1b"}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -106,12 +106,12 @@ connection_open(HomeDir, ConnectionConfig, SessionConfig) ->
     PrivDir = wterl:priv_dir(),
     {ok, PrivFiles} = file:list_dir(PrivDir),
     SoFiles =
-	lists:filter(fun(Elem) ->
-			     case re:run(Elem, "^libwiredtiger_.*\.so$") of
-				 {match, _} -> true;
-				 nomatch -> false
-			     end
-		     end, PrivFiles),
+        lists:filter(fun(Elem) ->
+                             case re:run(Elem, "^libwiredtiger_.*\.so$") of
+                                 {match, _} -> true;
+                                 nomatch -> false
+                             end
+                     end, PrivFiles),
     SoPaths = lists:map(fun(Elem) -> filename:join([PrivDir, Elem]) end, SoFiles),
     conn_open(HomeDir, [{extensions, SoPaths}] ++ ConnectionConfig, SessionConfig).
 
@@ -394,12 +394,12 @@ fold(Cursor, Fun, Acc, {ok, Key, Value}) ->
 
 priv_dir() ->
     case code:priv_dir(?MODULE) of
-	{error, bad_name} ->
-	    EbinDir = filename:dirname(code:which(?MODULE)),
-	    AppPath = filename:dirname(EbinDir),
-	    filename:join([AppPath, "priv"]);
-	Path ->
-	    Path
+        {error, bad_name} ->
+            EbinDir = filename:dirname(code:which(?MODULE)),
+            AppPath = filename:dirname(EbinDir),
+            filename:join([AppPath, "priv"]);
+        Path ->
+            Path
     end.
 
 %%
@@ -524,7 +524,7 @@ remove_all_files(Dir, Files) ->
                               {ok, FileInfo} ->
                                   case FileInfo#file_info.type of
                                       directory ->
-                                          {ok, DirFiles} = file:list_dir(FilePath), 
+                                          {ok, DirFiles} = file:list_dir(FilePath),
                                           remove_all_files(FilePath, DirFiles),
                                           file:del_dir(FilePath);
                                       _ ->
@@ -874,11 +874,11 @@ prop_put_delete() ->
                  begin
                      DataDir = "test/wterl.putdelete.qc",
                      Table = "table:eqc",
-		     {ok, CWD} = file:get_cwd(),
-		     ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
+                     {ok, CWD} = file:get_cwd(),
+                     ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
                      ?cmd("rm -rf "++DataDir),
                      ok = filelib:ensure_dir(filename:join([DataDir, "x"])),
-                     {ok, Conn} = wterl:connection_open(DataDir, [{create,true}]),
+                     {ok, ConnRef} = wterl:connection_open(DataDir, [{create,true}]),
                      try
                          wterl:create(ConnRef, Table),
                          Model = apply_kv_ops(Ops, ConnRef, Table, []),
@@ -892,7 +892,7 @@ prop_put_delete() ->
                          lists:map(F, Model),
                          true
                      after
-                         wterl:connection_close(Conn)
+                         wterl:connection_close(ConnRef)
                      end
                  end)).
 
