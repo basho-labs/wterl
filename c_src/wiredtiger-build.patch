@@ -7,7 +7,7 @@ index 0aedc2e..9cd96e3 100644
  libwiredtiger_bzip2_la_SOURCES = bzip2_compress.c
  libwiredtiger_bzip2_la_LDFLAGS = -avoid-version -module
 -libwiredtiger_bzip2_la_LIBADD = -lbz2
-+libwiredtiger_bzip2_la_LIBADD = -l$(BASEDIR)/system/lib/libbz2.a
++libwiredtiger_bzip2_la_LIBADD = -L$(BASEDIR)/system/lib/libbz2.a
 diff --git a/ext/compressors/snappy/Makefile.am b/ext/compressors/snappy/Makefile.am
 index 6d78823..286dc55 100644
 --- a/ext/compressors/snappy/Makefile.am
@@ -17,4 +17,4 @@ index 6d78823..286dc55 100644
  libwiredtiger_snappy_la_SOURCES = snappy_compress.c
  libwiredtiger_snappy_la_LDFLAGS = -avoid-version -module
 -libwiredtiger_snappy_la_LIBADD = -lsnappy
-+libwiredtiger_snappy_la_LIBADD = -l$(BASEDIR)/system/lib/libsnappy.a
++libwiredtiger_snappy_la_LIBADD = -L$(BASEDIR)/system/lib/libsnappy.a

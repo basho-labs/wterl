@@ -59,7 +59,6 @@ get_wt ()
         cd ./build_posix || exit 1
         [ -e Makefile ] && $MAKE distclean
         ../configure --with-pic \
-            --disable-shared \
             --enable-snappy \
             --enable-bzip2 \
             --prefix=${BASEDIR}/system || exit 1
@@ -169,6 +168,7 @@ case "$1" in
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv
+        cp $BASEDIR/system/lib/libwiredtiger*.so ${BASEDIR}/../priv
 
         ;;
 esac
