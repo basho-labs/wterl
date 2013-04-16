@@ -13,9 +13,11 @@ all: compile
 deps: get-deps
 
 get-deps:
+	c_src/build_deps.sh get-deps
 	@$(REBAR) get-deps
 
 update-deps:
+	c_src/build_deps.sh update-deps
 	@$(REBAR) update-deps
 
 c_src/wterl.o: c_src/async_nif.h

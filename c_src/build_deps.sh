@@ -1,40 +1,151 @@
 #!/bin/bash
 
+# /bin/sh on Solaris is not a POSIX compatible shell, but /usr/bin/ksh is.
+if [ `uname -s` = 'SunOS' -a "${POSIX_SHELL}" != "true" ]; then
+    POSIX_SHELL="true"
+    export POSIX_SHELL
+    exec /usr/bin/ksh $0 $@
+fi
+unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as well
+
 set -e
 
+WT_REPO=http://github.com/wiredtiger/wiredtiger.git
 WT_BRANCH=basho
-WT_REMOTE_REPO=http://github.com/wiredtiger/wiredtiger.git
+WT_VSN=""
+WT_DIR=wiredtiger-$WT_BRANCH
+
+#SNAPPY_REPO=
+#SNAPPY_BRANCH=
+SNAPPY_VSN="1.0.4"
+SNAPPY_DIR=snappy-$SNAPPY_VSN
+
+#BZIP2_REPO=
+#BZIP2_BRANCH=
+BZIP2_VSN="1.0.6"
+BZIP2_DIR=bzip2-$BZIP2_VSN
 
 [ `basename $PWD` != "c_src" ] && cd c_src
 
-BASEDIR="$PWD"
+export BASEDIR="$PWD"
+
+which gmake 1>/dev/null 2>/dev/null && MAKE=gmake
+MAKE=${MAKE:-make}
+
+export CFLAGS="$CFLAGS -g -I $BASEDIR/system/include"
+export CXXFLAGS="$CXXFLAGS -I $BASEDIR/system/include"
+export LDFLAGS="$LDFLAGS -L$BASEDIR/system/lib"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$BASEDIR/system/lib:$LD_LIBRARY_PATH"
+
+build_wt ()
+{
+    (cd $BASEDIR/$WT_DIR/build_posix && \
+        $MAKE -j && $MAKE install)
+}
+
+build_snappy ()
+{
+    (cd $BASEDIR/$SNAPPY_DIR && \
+        $MAKE -j && \
+        $MAKE install
+    )
+}
+
+build_bzip2 ()
+{
+    (cd $BASEDIR/$BZIP2_DIR && \
+        $MAKE -j && \
+        $MAKE install
+    )
+}
 
 case "$1" in
     clean)
-        rm -rf system wiredtiger
+        rm -rf system $WT_DIR $SNAPPY_DIR $BZIP2_DIR
+        ;;
+
+    test)
+        (cd $BASEDIR/$WT_DIR && $MAKE -j test)
+
+        ;;
+
+    update-deps)
+        if [ -d $BASEDIR/$WT_DIR/.git ]; then
+            (cd $BASEDIR/$WT_DIR
+                if [ "X$WT_VSN" == "X" ]; then
+                    git pull -u || exit 1
+                else
+                    git checkout $WT_VSN || exit 1
+                fi
+            )
+        fi
+        ;;
+
+    get-deps)
+        # WiredTiger
+        if [ -d $BASEDIR/$WT_DIR/.git ]; then
+            (cd $BASEDIR/$WT_DIR && git pull -u) || exit 1
+        else
+            if [ "X$WT_VSN" == "X" ]; then
+                git clone ${WT_REPO} && \
+                (cd $BASEDIR/wiredtiger && git checkout $WT_VSN || exit 1)
+            else
+                git clone -b ${WT_BRANCH} --single-branch ${WT_REPO} && \
+                (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH || exit 1)
+            fi
+            mv wiredtiger $WT_DIR || exit 1
+        fi
+        [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
+        (cd $BASEDIR/$WT_DIR
+            [ -e $BASEDIR/wiredtiger-*.patch ] && \
+                (patch -p1 --forward < $BASEDIR/wiredtiger-*.patch || exit 1 )
+            ./autogen.sh || exit 1
+            cd ./build_posix || exit 1
+            [ -e Makefile ] && $MAKE distclean
+            ../configure --with-pic \
+                         --disable-shared \
+                         --enable-snappy \
+                         --enable-bzip2 \
+                         --prefix=${BASEDIR}/system || exit 1
+            )
+
+        # Snappy
+        [ -e snappy-$SNAPPY_VSN.tar.gz ] || (echo "Missing Snappy ($SNAPPY_VSN) source package" && exit 1)
+        [ -d $BASEDIR/$SNAPPY_DIR ] || tar -xzf snappy-$SNAPPY_VSN.tar.gz
+        [ -e $BASEDIR/snappy-*.patch ] && \
+            (cd $BASEDIR/$SNAPPY_DIR || exit 1
+             patch -p1 --forward < $BASEDIR/snappy-*.patch || exit 1)
+        (cd $BASEDIR/$SNAPPY_DIR || exit 1
+            ./configure --with-pic \
+                        --disable-shared \
+                        --prefix=$BASEDIR/system || exit 1
+        )
+
+        # BZip2
+        [ -e bzip2-$BZIP2_VSN.tar.gz  ] || (echo "Missing bzip2 ($BZIP2_VSN) source package" && exit 1)
+        [ -d $BASEDIR/$BZIP2_DIR ] || tar -xzf bzip2-$BZIP2_VSN.tar.gz
+        [ -e $BASEDIR/bzip2-*.patch ] && \
+            (cd $BASEDIR/$BZIP2_DIR || exit 1
+             patch -p1 --forward < $BASEDIR/bzip2-*.patch || exit 1)
         ;;
 
     *)
-        test -f system/lib/libwiredtiger.a && exit 0
+        # Build Snappy
+        [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory (did you first get-deps?)" && exit 1)
+        test -f system/lib/libsnappy.a || build_snappy;
 
-        if [ -d wiredtiger/.git ]; then
-            (cd wiredtiger && \
-                git fetch && \
-                git merge origin/${WT_BRANCH})
-        else
-            git clone -b ${WT_BRANCH} --single-branch ${WT_REMOTE_REPO} && \
-            (cd wiredtiger && \
-             patch -p1 < ../wiredtiger-extension-link.patch && \
-             ./autogen.sh)
-        fi
-        (cd wiredtiger/build_posix && \
-            CFLAGS="-I/usr/local/include -L/usr/local/lib" \
-	    ../configure --with-pic \
-                         --enable-snappy \
-                         --prefix=${BASEDIR}/system && \
-            make -j && make install)
-        [ -d ${BASEDIR}/../priv ] || mkdir ${BASEDIR}/../priv
-        cp ${BASEDIR}/system/bin/wt ${BASEDIR}/../priv
-        cp ${BASEDIR}/system/lib/*.so ${BASEDIR}/../priv
+        # Build BZIP2
+        [ -d $BASEDIR/$BZIP2_DIR ] || (echo "Missing BZip2 source directory (did you first get-deps?)" && exit 1)
+        test -f system/lib/libbz2.a || build_bzip2;
+
+        # Build WiredTiger
+        [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory (did you first get-deps?)" && exit 1)
+        test -f system/lib/libwiredtiger.a -a \
+             -f system/lib/libwiredtiger_snappy.a -a \
+             -f system/lib/libwiredtiger_bzip2.a || build_wt;
+
+        [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
+        cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv
+
         ;;
 esac
