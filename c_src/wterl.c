@@ -198,16 +198,8 @@ __retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char
 	    return rc;
         }
 
-        char *key = enif_alloc(sizeof(Uri));
-        if (!key) {
-            session->close(session, NULL);
-            enif_mutex_unlock(conn_handle->contexts_mutex);
-	    return ENOMEM;
-        }
-        memcpy(key, uri, 128);
-
         int itr_status;
-        itr = kh_put(cursors, h, key, &itr_status);
+        itr = kh_put(cursors, h, uri, &itr_status);
 	kh_value(h, itr) = *cursor;
         enif_mutex_unlock(conn_handle->contexts_mutex);
     }
