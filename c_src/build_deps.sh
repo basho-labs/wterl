@@ -48,6 +48,7 @@ get_wt ()
         mv wiredtiger $WT_DIR || exit 1
     fi
     [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
+    (cd $BASEDIR/$WT_DIR && git cherry-pick a3c8c2a13758ae9c44edabcc1a780984a7882904 || exit 1)
     (cd $BASEDIR/$WT_DIR
         [ -e $BASEDIR/wiredtiger-build.patch ] && \
             (patch -p1 --forward < $BASEDIR/wiredtiger-build.patch || exit 1 )
@@ -167,12 +168,13 @@ case "$1" in
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
         test -f system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
              -a -f system/lib/libwiredtiger_snappy.so \
-             -a -f system/lib/libwiredtiger_bzip2.so || build_wt;
+             -a -f system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv
         cp $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libwiredtiger_*.so ${BASEDIR}/../priv
+        cp $BASEDIR/system/lib/libwiredtiger_snappy.so ${BASEDIR}/../priv
+        cp $BASEDIR/system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
         cp $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
         cp $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
         ;;

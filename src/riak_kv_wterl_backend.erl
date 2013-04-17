@@ -355,7 +355,11 @@ max_sessions(Config) ->
             undefined -> 1024;
             Size -> Size
         end,
-    1000 * (RingSize * erlang:system_info(schedulers)). % TODO: review/fix this logic
+    Est = 1000 * (RingSize * erlang:system_info(schedulers)), % TODO: review/fix this logic
+    case Est > 1000000000  of % Note: WiredTiger uses a signed int for this
+        true -> 1000000000;
+        false -> Est
+    end.
 
 %% @private
 establish_utility_cursors(Connection, Table) ->
