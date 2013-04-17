@@ -477,6 +477,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
      {lsm_bloom_newest, bool},
      {lsm_bloom_oldest, bool},
      {lsm_chunk_size, string},
+     {prefix_compression, bool},
      {lsm_merge_threads, integer},
      {multiprocess, bool},
      {name, string},

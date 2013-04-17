@@ -123,6 +123,7 @@ start(Partition, Config) ->
                         [{internal_page_max, "128K"},
                          {leaf_page_max, "128K"},
                          {lsm_chunk_size, "25MB"},
+                         {prefix_compression, false},
                          {lsm_bloom_newest, true},
                          {lsm_bloom_oldest, true} ,
                          {lsm_bloom_bit_count, 128},
