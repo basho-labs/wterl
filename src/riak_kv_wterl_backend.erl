@@ -94,25 +94,43 @@ start(Partition, Config) ->
         end,
     case AppStart of
         ok ->
-            {type, Type} = wterl:config_value(type, Config, "lsm"),
+            Type =
+                case wterl:config_value(type, Config, "lsm") of
+                    {type, "lsm"} -> "lsm";
+                    {type, "table"} -> "table";
+                    {type, "btree"} -> "table";
+                    {type, BadType} ->
+                        lager:info("wterl:start ignoring unknown type ~p, using lsm instead", [BadType]),
+                        "lsm";
+                    _ ->
+                        lager:info("wterl:start ignoring mistaken setting defaulting to lsm"),
+                        "lsm"
+                end,
             {ok, Connection} = establish_connection(Config, Type),
             Table = Type ++ ":wt" ++ integer_to_list(Partition),
+            Compressor =
+                case wterl:config_value(block_compressor, Config, "snappy") of
+                    {block_compressor, "snappy"}=C -> [C];
+                    {block_compressor, "bzip2"}=C -> [C];
+                    {block_compressor, "none"} -> [];
+                    {block_compressor, none} -> [];
+                    {block_compressor, _} -> [{block_compressor, "snappy"}];
+                    _ -> [{block_compressor, "snappy"}]
+                end,
             TableOpts =
                 case Type of
                     "lsm" ->
-                        [{block_compressor, "snappy"},
-                         {internal_page_max, "128K"},
+                        [{internal_page_max, "128K"},
                          {leaf_page_max, "128K"},
                          {lsm_chunk_size, "25MB"},
                          {lsm_bloom_newest, true},
                          {lsm_bloom_oldest, true} ,
                          {lsm_bloom_bit_count, 128},
                          {lsm_bloom_hash_count, 64},
-                         {lsm_bloom_config, [{leaf_page_max, "8MB"}]} ];
+                         {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
+                        ] ++ Compressor;
                     "table" ->
-                        [{block_compressor, "snappy"}];
-                    _ ->
-                        []
+                        Compressor
                 end,
             case wterl:create(Connection, Table, TableOpts) of
                 ok ->
@@ -561,14 +579,12 @@ size_cache(RequestedSize) ->
 
 simple_test_() ->
     {ok, CWD} = file:get_cwd(),
-    ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
     rmdir:path(filename:join([CWD, "test/wterl-backend"])), %?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, "test/wterl-backend"),
     temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
     {ok, CWD} = file:get_cwd(),
-    ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
     rmdir:path(filename:join([CWD, "test/wterl-backend"])), %?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, ""),
     temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).

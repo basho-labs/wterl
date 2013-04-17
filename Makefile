@@ -40,22 +40,16 @@ eunit: compile
 	@$(REBAR) eunit skip_deps=true
 
 eunit_console:
-	@$(ERL) -pa .eunit deps/*/ebin
+	@$(ERL) -pa .eunit deps/lager/ebin
 
 plt: compile
-	@$(DIALYZER) --build_plt --output_plt .$(TARGET).plt -pa deps/*/ebin --apps kernel stdlib
+	@$(DIALYZER) --build_plt --output_plt .$(TARGET).plt -pa deps/lager/ebin --apps kernel stdlib
 
 analyze: compile
-	$(DIALYZER) --plt .$(TARGET).plt -pa deps/*/ebin ebin
+	$(DIALYZER) --plt .$(TARGET).plt -pa deps/lager/ebin ebin
 
 repl:
-	$(ERL) -pz deps/*/ebin -pa ebin
-
-gdb-repl:
-	USE_GDB=1 $(ERL) -pz deps/*/ebin -pa ebin
+	$(ERL) -pz deps/lager/ebin -pa ebin
 
 eunit-repl:
-	$(ERL) -pa .eunit -pz deps/*/ebin -pz ebin -exec 'cd(".eunit").'
-
-gdb-eunit-repl:
-	USE_GDB=1 $(ERL) -pa .eunit -pz deps/*/ebin -pz ebin -exec 'cd(".eunit").'
+	$(ERL) -pz deps/lager/ebin -pa ebin -pa .eunit

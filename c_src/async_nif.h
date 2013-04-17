@@ -278,10 +278,9 @@ async_nif_worker_fn(void *arg)
   unsigned int worker_id = we->worker_id;
   struct async_nif_state *async_nif = we->async_nif;
   struct async_nif_work_queue *q = we->q;
+  struct async_nif_req_entry *req = NULL;
 
   for(;;) {
-    struct async_nif_req_entry *req = NULL;
-
     /* Examine the request queue, are there things to be done? */
     enif_mutex_lock(q->reqs_mutex);
     check_again_for_work:
@@ -295,34 +294,22 @@ async_nif_worker_fn(void *arg)
       goto check_again_for_work;
     } else {
       /* At this point the next req is ours to process and we hold the
-         reqs_mutex lock. */
+         reqs_mutex lock.  Take the request off the queue. */
+      req = fifo_q_get(reqs, q->reqs);
+      enif_mutex_unlock(q->reqs_mutex);
 
-      do {
-        /* Take the request off the queue. */
-        req = fifo_q_get(reqs, q->reqs);
-        enif_mutex_unlock(q->reqs_mutex);
+      /* Wake up another thread working on this queue. */
+      enif_cond_signal(q->reqs_cnd);
 
-        /* Wake up another thread working on this queue. */
-        enif_cond_signal(q->reqs_cnd);
-
-        /* Finally, do the work. */
-        req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
-        req->fn_post(req->args);
-        /* Note: we don't call enif_free_env(req->env) because it has called
-           enif_send() which invalidates it (free'ing it for us).  If a work
-           block doesn't call ASYNC_NIF_REPLY() at some point then it must
-           call ASYNC_NIF_NOREPLY() to free this env. */
-        enif_free(req->args);
-        enif_free(req);
-
-        /* Continue working if more requests are in the queue, otherwise wait
-           for new work to arrive. */
-        if (fifo_q_empty(reqs, q->reqs))
-            req = NULL;
-        else
-            enif_mutex_lock(q->reqs_mutex);
-
-      } while(req);
+      /* Finally, do the work. */
+      req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
+      req->fn_post(req->args);
+      /* Note: we don't call enif_free_env(req->env) because it has called
+         enif_send() which invalidates it (free'ing it for us).  If a work
+         block doesn't call ASYNC_NIF_REPLY() at some point then it must
+         call ASYNC_NIF_NOREPLY() to free this env. */
+      enif_free(req->args);
+      enif_free(req);
     }
   }
   enif_thread_exit(0);

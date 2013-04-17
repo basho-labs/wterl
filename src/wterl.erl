@@ -518,7 +518,6 @@ open_test_conn(DataDir) ->
     open_test_conn(DataDir, [{create,true},{cache_size,"100MB"}]).
 open_test_conn(DataDir, OpenConfig) ->
     {ok, CWD} = file:get_cwd(),
-    ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
     rmdir:path(filename:join([CWD, DataDir])), %?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
     ?assertMatch(ok, filelib:ensure_dir(filename:join([DataDir, "x"]))),
     {ok, ConnRef} = connection_open(filename:join([CWD, DataDir]), OpenConfig),
@@ -660,7 +659,6 @@ various_maintenance_test_() ->
     {setup,
      fun () ->
              {ok, CWD} = file:get_cwd(),
-             ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
              ?assertMatch(ok, filelib:ensure_dir(filename:join([?TEST_DATA_DIR, "x"]))),
              {ok, ConnRef} = connection_open(filename:join([CWD, ?TEST_DATA_DIR]), []),
              ConnRef
@@ -859,7 +857,6 @@ prop_put_delete() ->
                      DataDir = "test/wterl.putdelete.qc",
                      Table = "table:eqc",
                      {ok, CWD} = file:get_cwd(),
-                     ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
                      ?cmd("rm -rf "++DataDir),
                      ok = filelib:ensure_dir(filename:join([DataDir, "x"])),
                      {ok, ConnRef} = wterl:connection_open(DataDir, [{create,true}]),

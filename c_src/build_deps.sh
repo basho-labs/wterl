@@ -54,11 +54,10 @@ get_wt ()
         ./autogen.sh || exit 1
         cd ./build_posix || exit 1
         [ -e Makefile ] && $MAKE distclean
-        LDFLAGS="-L$BASEDIR/system/lib" CFLAGS="-I$BASEDIR/system/include" \
-            ../configure --with-pic \
-              --enable-snappy \
-              --enable-bzip2 \
-              --prefix=${BASEDIR}/system || exit 1
+        ../configure --with-pic \
+                     --enable-snappy \
+                     --enable-bzip2 \
+                     --prefix=${BASEDIR}/system || exit 1
     )
 }
 
