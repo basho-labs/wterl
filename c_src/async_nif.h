@@ -295,7 +295,6 @@ async_nif_worker_fn(void *arg)
         req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
         req->fn_post(req->args);
         enif_free(req->args);
-        enif_free_env(req->env);
         enif_free(req);
 
         /* Continue working if more requests are in the queue, otherwise wait

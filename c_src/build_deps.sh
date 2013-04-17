@@ -58,10 +58,11 @@ get_wt ()
         ./autogen.sh || exit 1
         cd ./build_posix || exit 1
         [ -e Makefile ] && $MAKE distclean
-        ../configure --with-pic \
-            --enable-snappy \
-            --enable-bzip2 \
-            --prefix=${BASEDIR}/system || exit 1
+        LDFLAGS="-L$BASEDIR/system/lib" CFLAGS="-I$BASEDIR/system/include" \
+            ../configure --with-pic \
+              --enable-snappy \
+              --enable-bzip2 \
+              --prefix=${BASEDIR}/system || exit 1
     )
 }
 
@@ -74,7 +75,6 @@ get_snappy ()
         patch -p1 --forward < $BASEDIR/snappy-build.patch || exit 1)
     (cd $BASEDIR/$SNAPPY_DIR || exit 1
         ./configure --with-pic \
-            --disable-shared \
             --prefix=$BASEDIR/system || exit 1
     )
 }
@@ -125,14 +125,24 @@ build_snappy ()
 build_bzip2 ()
 {
     (cd $BASEDIR/$BZIP2_DIR && \
-        $MAKE -j && \
-        $MAKE install
+        $MAKE -j -f Makefile-libbz2_so && \
+        mkdir -p $BASEDIR/system/lib && \
+        cp -f bzlib.h $BASEDIR/system/include && \
+        cp -f libbz2.so.1.0.6 $BASEDIR/system/lib && \
+        ln -s $BASEDIR/system/lib/libbz2.so.1.0.6 $BASEDIR/system/lib/libbz2.so && \
+        ln -s $BASEDIR/system/lib/libbz2.so.1.0.6 $BASEDIR/system/lib/libbz2-1.so && \
+        ln -s $BASEDIR/system/lib/libbz2.so.1.0.6 $BASEDIR/system/lib/libbz2-1.0.so
     )
 }
 
 case "$1" in
     clean)
         rm -rf system $WT_DIR $SNAPPY_DIR $BZIP2_DIR
+        rm -f ${BASEDIR}/../priv/wt
+        rm -f ${BASEDIR}/../priv/libwiredtiger-*.so
+        rm -f ${BASEDIR}/../priv/libwiredtiger_*.so
+        rm -f ${BASEDIR}/../priv/libbz2.so.*
+        rm -f ${BASEDIR}/../priv/libsnappy.so.*
         ;;
 
     test)
@@ -154,21 +164,23 @@ case "$1" in
 
         # Build Snappy
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory (did you first get-deps?)" && exit 1)
-        test -f system/lib/libsnappy.a || build_snappy;
+        test -f system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
 
         # Build BZIP2
         [ -d $BASEDIR/$BZIP2_DIR ] || (echo "Missing BZip2 source directory (did you first get-deps?)" && exit 1)
-        test -f system/lib/libbz2.a || build_bzip2;
+        test -f system/lib/libbz2.so.[0-9].[0-9].[0-9] || build_bzip2;
 
         # Build WiredTiger
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory (did you first get-deps?)" && exit 1)
-        test -f system/lib/libwiredtiger.a -a \
-             -f system/lib/libwiredtiger_snappy.a -a \
-             -f system/lib/libwiredtiger_bzip2.a || build_wt;
+        test -f system/lib/libwiredtiger-[0-9].[0-9].[0-9].so -a \
+             -f system/lib/libwiredtiger_snappy.so -a \
+             -f system/lib/libwiredtiger_bzip2.so || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libwiredtiger*.so ${BASEDIR}/../priv
-
+        cp $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
+        cp $BASEDIR/system/lib/libwiredtiger_*.so ${BASEDIR}/../priv
+        cp $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
+        cp $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
         ;;
 esac
