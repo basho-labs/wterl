@@ -23,14 +23,6 @@
 #include <string.h>
 #include <errno.h>
 
-#include "wiredtiger.h"
-#include "async_nif.h"
-#include "khash.h"
-
-#ifdef WTERL_STATS
-#include "stats.h"
-#endif
-
 #ifdef DEBUG
 #include <stdio.h>
 #include <stdarg.h>
@@ -41,6 +33,14 @@
     } while(0);
 #else
 #  define dprint(s, ...) {}
+#endif
+
+#include "wiredtiger.h"
+#include "async_nif.h"
+#include "khash.h"
+
+#ifdef WTERL_STATS
+#include "stats.h"
 #endif
 
 static ErlNifResourceType *wterl_conn_RESOURCE;

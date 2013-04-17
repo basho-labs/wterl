@@ -560,12 +560,16 @@ size_cache(RequestedSize) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/wterl-backend"),
+    {ok, CWD} = file:get_cwd(),
+    ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
+    rmdir:path(filename:join([CWD, "test/wterl-backend"])), %?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, "test/wterl-backend"),
     temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/wterl-backend"),
+    {ok, CWD} = file:get_cwd(),
+    ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
+    rmdir:path(filename:join([CWD, "test/wterl-backend"])), %?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, ""),
     temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).
 

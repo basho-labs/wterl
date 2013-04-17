@@ -15,13 +15,9 @@ WT_BRANCH=basho
 WT_VSN=""
 WT_DIR=wiredtiger-$WT_BRANCH
 
-#SNAPPY_REPO=
-#SNAPPY_BRANCH=
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
 
-#BZIP2_REPO=
-#BZIP2_BRANCH=
 BZIP2_VSN="1.0.6"
 BZIP2_DIR=bzip2-$BZIP2_VSN
 
@@ -71,12 +67,10 @@ get_snappy ()
     [ -e snappy-$SNAPPY_VSN.tar.gz ] || (echo "Missing Snappy ($SNAPPY_VSN) source package" && exit 1)
     [ -d $BASEDIR/$SNAPPY_DIR ] || tar -xzf snappy-$SNAPPY_VSN.tar.gz
     [ -e $BASEDIR/snappy-build.patch ] && \
-        (cd $BASEDIR/$SNAPPY_DIR || exit 1
+        (cd $BASEDIR/$SNAPPY_DIR
         patch -p1 --forward < $BASEDIR/snappy-build.patch || exit 1)
-    (cd $BASEDIR/$SNAPPY_DIR || exit 1
-        ./configure --with-pic \
-            --prefix=$BASEDIR/system || exit 1
-    )
+    (cd $BASEDIR/$SNAPPY_DIR
+        ./configure --with-pic --prefix=$BASEDIR/system || exit 1)
 }
 
 get_bzip2 ()
@@ -84,7 +78,7 @@ get_bzip2 ()
     [ -e bzip2-$BZIP2_VSN.tar.gz  ] || (echo "Missing bzip2 ($BZIP2_VSN) source package" && exit 1)
     [ -d $BASEDIR/$BZIP2_DIR ] || tar -xzf bzip2-$BZIP2_VSN.tar.gz
     [ -e $BASEDIR/bzip2-build.patch ] && \
-        (cd $BASEDIR/$BZIP2_DIR || exit 1
+        (cd $BASEDIR/$BZIP2_DIR
         patch -p1 --forward < $BASEDIR/bzip2-build.patch || exit 1)
 }
 
@@ -163,18 +157,18 @@ case "$1" in
         [ -d $BZIP2_DIR ] || get_bzip2;
 
         # Build Snappy
-        [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory (did you first get-deps?)" && exit 1)
+        [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
         test -f system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
 
         # Build BZIP2
-        [ -d $BASEDIR/$BZIP2_DIR ] || (echo "Missing BZip2 source directory (did you first get-deps?)" && exit 1)
+        [ -d $BASEDIR/$BZIP2_DIR ] || (echo "Missing BZip2 source directory" && exit 1)
         test -f system/lib/libbz2.so.[0-9].[0-9].[0-9] || build_bzip2;
 
         # Build WiredTiger
-        [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory (did you first get-deps?)" && exit 1)
-        test -f system/lib/libwiredtiger-[0-9].[0-9].[0-9].so -a \
-             -f system/lib/libwiredtiger_snappy.so -a \
-             -f system/lib/libwiredtiger_bzip2.so || build_wt;
+        [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
+        test -f system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
+             -a -f system/lib/libwiredtiger_snappy.so \
+             -a -f system/lib/libwiredtiger_bzip2.so || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv

@@ -512,29 +512,6 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 %% ===================================================================
 -ifdef(TEST).
 
--include_lib("kernel/include/file.hrl").
-
-remove_dir_tree(Dir) ->
-    remove_all_files(".", [Dir]).
-
-remove_all_files(Dir, Files) ->
-    lists:foreach(fun(File) ->
-                          FilePath = filename:join([Dir, File]),
-                          case file:read_file_info(FilePath) of
-                              {ok, FileInfo} ->
-                                  case FileInfo#file_info.type of
-                                      directory ->
-                                          {ok, DirFiles} = file:list_dir(FilePath),
-                                          remove_all_files(FilePath, DirFiles),
-                                          file:del_dir(FilePath);
-                                      _ ->
-                                          file:delete(FilePath)
-                                  end;
-                              {error, _Reason} ->
-                                  ok
-                          end
-                  end, Files).
-
 -define(TEST_DATA_DIR, "test/wterl.basic").
 
 open_test_conn(DataDir) ->
@@ -542,7 +519,7 @@ open_test_conn(DataDir) ->
 open_test_conn(DataDir, OpenConfig) ->
     {ok, CWD} = file:get_cwd(),
     ?assertMatch(true, lists:suffix("wterl/.eunit", CWD)),
-    remove_dir_tree(filename:join([CWD, DataDir])), %?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
+    rmdir:path(filename:join([CWD, DataDir])), %?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
     ?assertMatch(ok, filelib:ensure_dir(filename:join([DataDir, "x"]))),
     {ok, ConnRef} = connection_open(filename:join([CWD, DataDir]), OpenConfig),
     ConnRef.
@@ -594,7 +571,8 @@ conn_test_() ->
                         ConnRef = open_test_table(ConnRef, "table", [{block_compressor, "bzip2"}]),
                         ?assertMatch(ok, verify(ConnRef, "table:test")),
                         ?assertMatch(ok, drop(ConnRef, "table:test"))
-                end}]}
+                end}
+              ]}
      end}.
 
 insert_delete_test() ->
