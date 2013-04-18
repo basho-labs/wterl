@@ -158,17 +158,17 @@ case "$1" in
 
         # Build Snappy
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
-        test -f system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
+        test -f $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
 
         # Build BZIP2
         [ -d $BASEDIR/$BZIP2_DIR ] || (echo "Missing BZip2 source directory" && exit 1)
-        test -f system/lib/libbz2.so.[0-9].[0-9].[0-9] || build_bzip2;
+        test -f $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] || build_bzip2;
 
         # Build WiredTiger
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
-        test -f system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
-             -a -f system/lib/libwiredtiger_snappy.so \
-             -a -f system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] || build_wt;
+        test -f $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
+             -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so \
+             -a -f $BASEDIR/system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv

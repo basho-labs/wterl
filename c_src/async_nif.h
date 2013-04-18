@@ -27,79 +27,13 @@ extern "C" {
 #endif
 
 #include <assert.h>
+#include "fifo_q.h"
 #ifdef ASYNC_NIF_STATS
 #include "stats.h" // TODO: measure, measure... measure again
 #endif
 
 #define ASYNC_NIF_MAX_WORKERS 128
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
-
-#define FIFO_QUEUE_TYPE(name)             \
-  struct fifo_q__ ## name *
-#define DECL_FIFO_QUEUE(name, type)       \
-  struct fifo_q__ ## name {               \
-    unsigned int h, t, s;                 \
-    type *items[];                        \
-  };                                      \
-  static struct fifo_q__ ## name *fifo_q_ ## name ## _new(unsigned int n) { \
-    int sz = sizeof(struct fifo_q__ ## name) + ((n+1) * sizeof(type *));\
-    struct fifo_q__ ## name *q = enif_alloc(sz);                        \
-    if (!q)                                                             \
-        return 0;                                                       \
-    memset(q, 0, sz);                                                   \
-    q->s = n + 1;                                                       \
-    return q;                                                           \
-  }                                                                     \
-  static inline void fifo_q_ ## name ## _free(struct fifo_q__ ## name *q) {    \
-    memset(q, 0, sizeof(struct fifo_q__ ## name) + (q->s * sizeof(type *))); \
-    enif_free(q);                                                       \
-  }                                                                     \
-  static inline type *fifo_q_ ## name ## _put(struct fifo_q__ ## name *q, type *n) { \
-    q->items[q->h] = n;                                                 \
-    q->h = (q->h + 1) % q->s;                                           \
-    return n;                                                           \
-  }                                                                     \
-  static inline type *fifo_q_ ## name ## _get(struct fifo_q__ ## name *q) {    \
-    type *n = q->items[q->t];                                           \
-    q->items[q->t] = 0;                                                 \
-    q->t = (q->t + 1) % q->s;                                           \
-    return n;                                                           \
-  }                                                                     \
-  static inline unsigned int fifo_q_ ## name ## _size(struct fifo_q__ ## name *q) { \
-    return (q->h - q->t + q->s) % q->s;                                 \
-  }                                                                     \
-  static inline unsigned int fifo_q_ ## name ## _capacity(struct fifo_q__ ## name *q) { \
-    return q->s - 1;                                                    \
-  }                                                                     \
-  static inline int fifo_q_ ## name ## _empty(struct fifo_q__ ## name *q) {    \
-    return (q->t == q->h);                                              \
-  }                                                                     \
-  static inline int fifo_q_ ## name ## _full(struct fifo_q__ ## name *q) {     \
-    return ((q->h + 1) % q->s) == q->t;                                 \
-  }
-
-#define fifo_q_new(name, size) fifo_q_ ## name ## _new(size)
-#define fifo_q_free(name, queue) fifo_q_ ## name ## _free(queue)
-#define fifo_q_get(name, queue) fifo_q_ ## name ## _get(queue)
-#define fifo_q_put(name, queue, item) fifo_q_ ## name ## _put(queue, item)
-#define fifo_q_size(name, queue) fifo_q_ ## name ## _size(queue)
-#define fifo_q_capacity(name, queue) fifo_q_ ## name ## _capacity(queue)
-#define fifo_q_empty(name, queue) fifo_q_ ## name ## _empty(queue)
-#define fifo_q_full(name, queue) fifo_q_ ## name ## _full(queue)
-#define fifo_q_foreach(name, queue, item, task) do {                    \
-    while((item = fifo_q_ ## name ## _get(queue)) != NULL) {            \
-      do task while(0);                                                 \
-    }                                                                   \
-  } while(0);
-
-struct async_nif_req_entry {
-  ERL_NIF_TERM ref;
-  ErlNifEnv *env;
-  ErlNifPid pid;
-  void *args;
-  void (*fn_work)(ErlNifEnv*, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *);
-  void (*fn_post)(void *);
-};
 
 DECL_FIFO_QUEUE(reqs, struct async_nif_req_entry);
 
@@ -141,7 +75,8 @@ struct async_nif_state {
     /* argv[0] is a ref used for selective recv */                      \
     const ERL_NIF_TERM *argv = argv_in + 1;                             \
     argc -= 1;                                                          \
-    struct async_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env); \
+    /* Note: !!! this assumes that the first element of priv_data is ours */ \
+    struct async_nif_state *async_nif = *(struct async_nif_state**)enif_priv_data(env); \
     if (async_nif->shutdown)                                            \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "shutdown"));         \
@@ -198,11 +133,11 @@ struct async_nif_state {
         priv = async_nif_load();                                        \
         enif_mutex_unlock(name##_async_nif_coord);                      \
     } while(0);
-#define ASYNC_NIF_UNLOAD(name, env) do {                                \
+#define ASYNC_NIF_UNLOAD(name, env, priv) do {                          \
         if (!name##_async_nif_coord)                                    \
             name##_async_nif_coord = enif_mutex_create(NULL);           \
         enif_mutex_lock(name##_async_nif_coord);                        \
-        async_nif_unload(env);                                          \
+        async_nif_unload(env, priv);                                    \
         enif_mutex_unlock(name##_async_nif_coord);                      \
         enif_mutex_destroy(name##_async_nif_coord);                     \
         name##_async_nif_coord = NULL;                                  \
@@ -326,10 +261,9 @@ async_nif_worker_fn(void *arg)
 }
 
 static void
-async_nif_unload(ErlNifEnv *env)
+async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
 {
   unsigned int i;
-  struct async_nif_state *async_nif = (struct async_nif_state*)enif_priv_data(env);
   unsigned int num_queues = async_nif->num_queues;
   struct async_nif_work_queue *q = NULL;
 
@@ -359,7 +293,6 @@ async_nif_unload(ErlNifEnv *env)
   /* Cleanup requests, mutexes and conditions in each work queue. */
   for (i = 0; i < num_queues; i++) {
       q = &async_nif->queues[i];
-      enif_mutex_lock(q->reqs_mutex); // TODO: unnecessary?
 
       /* Worker threads are stopped, now toss anything left in the queue. */
       struct async_nif_req_entry *req = NULL;
@@ -372,8 +305,6 @@ async_nif_unload(ErlNifEnv *env)
           enif_free(req);
           });
       fifo_q_free(reqs, q->reqs);
-
-      enif_mutex_unlock(q->reqs_mutex); // TODO: unnecessary?
       enif_mutex_destroy(q->reqs_mutex);
       enif_cond_destroy(q->reqs_cnd);
   }
@@ -382,7 +313,7 @@ async_nif_unload(ErlNifEnv *env)
 }
 
 static void *
-async_nif_load(void)
+async_nif_load()
 {
   static int has_init = 0;
   unsigned int i, j, num_queues;

@@ -46,6 +46,7 @@
 static ErlNifResourceType *wterl_conn_RESOURCE;
 static ErlNifResourceType *wterl_cursor_RESOURCE;
 
+/* Generators for 'cursors' a named, type-specific hash table functions. */
 KHASH_MAP_INIT_STR(cursors, WT_CURSOR*);
 
 /**
@@ -90,7 +91,18 @@ static ERL_NIF_TERM ATOM_NOT_FOUND;
 static ERL_NIF_TERM ATOM_FIRST;
 static ERL_NIF_TERM ATOM_LAST;
 
+/* Generators for 'conns' a named, type-specific hash table functions. */
+KHASH_MAP_INIT_PTR(conns, WterlConnHandle*);
+
+struct wterl_priv_data {
+    void *async_nif_priv; // Note: must be first element in struct
+    ErlNifMutex *conns_mutex;
+    khash_t(conns) *conns;
+};
+
+/* Global init for async_nif. */
 ASYNC_NIF_INIT(wterl);
+
 
 /**
  * Get the per-worker reusable WT_SESSION for a worker_id.
@@ -135,10 +147,9 @@ __close_all_sessions(WterlConnHandle *conn_handle)
             for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
                 if (kh_exist(h, itr)) {
                     WT_CURSOR *cursor = kh_val(h, itr);
-                    char *key = (char *)kh_key(h, itr);
                     cursor->close(cursor);
                     kh_del(cursors, h, itr);
-                    enif_free(key);
+                    kh_value(h, itr) = NULL;
                 }
             }
             kh_destroy(cursors, h);
@@ -165,10 +176,9 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
             khiter_t itr = kh_get(cursors, h, (char *)uri);
             if (itr != kh_end(h)) {
                 WT_CURSOR *cursor = kh_value(h, itr);
-                char *key = (char *)kh_key(h, itr);
                 cursor->close(cursor);
                 kh_del(cursors, h, itr);
-                enif_free(key);
+                kh_value(h, itr) = NULL;
             }
         }
     }
@@ -251,6 +261,7 @@ ASYNC_NIF_DECL(
     ERL_NIF_TERM config;
     ERL_NIF_TERM session_config;
     char homedir[4096];
+    struct wterl_priv_data *priv;
   },
   { // pre
 
@@ -262,6 +273,8 @@ ASYNC_NIF_DECL(
     }
     args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[1]);
     args->session_config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
+
+    args->priv = (struct wterl_priv_data *)enif_priv_data(env);
   },
   { // work
 
@@ -297,13 +310,25 @@ ASYNC_NIF_DECL(
       } else {
           conn_handle->session_config = NULL;
       }
+      conn_handle->contexts_mutex = enif_mutex_create(NULL);
+      enif_mutex_lock(conn_handle->contexts_mutex);
       conn_handle->conn = conn;
       conn_handle->num_contexts = 0;
       memset(conn_handle->contexts, 0, sizeof(WterlCtx) * ASYNC_NIF_MAX_WORKERS);
-      conn_handle->contexts_mutex = enif_mutex_create(NULL);
       ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
+
+      khash_t(conns) *h;
+      enif_mutex_lock(args->priv->conns_mutex);
+      h = args->priv->conns;
+      int itr_status = 0;
+      khiter_t itr = kh_put(conns, h, conn, &itr_status);
+      if (itr_status != 0) // 0 indicates the key exists already
+          kh_value(h, itr) = conn_handle;
+      enif_mutex_unlock(args->priv->conns_mutex);
+
       enif_release_resource(conn_handle);
       ASYNC_NIF_REPLY(enif_make_tuple2(env, ATOM_OK, result));
+      enif_mutex_unlock(conn_handle->contexts_mutex);
     }
     else
     {
@@ -324,6 +349,7 @@ ASYNC_NIF_DECL(
   { // struct
 
     WterlConnHandle* conn_handle;
+    struct wterl_priv_data *priv;
   },
   { // pre
 
@@ -332,6 +358,8 @@ ASYNC_NIF_DECL(
       ASYNC_NIF_RETURN_BADARG();
     }
     enif_keep_resource((void*)args->conn_handle);
+
+    args->priv = (struct wterl_priv_data *)enif_priv_data(env);
   },
   { // work
 
@@ -344,6 +372,19 @@ ASYNC_NIF_DECL(
     }
     WT_CONNECTION* conn = args->conn_handle->conn;
     int rc = conn->close(conn, NULL);
+
+    khash_t(conns) *h;
+    enif_mutex_lock(args->priv->conns_mutex);
+    h = args->priv->conns;
+    khiter_t itr;
+    itr = kh_get(conns, h, conn);
+    if (itr == 0) {
+        /* key exists in table (as expected) delete it */
+        kh_del(conns, h, itr);
+        kh_value(h, itr) = NULL;
+    }
+    enif_mutex_unlock(args->priv->conns_mutex);
+
     enif_mutex_unlock(args->conn_handle->contexts_mutex);
     enif_mutex_destroy(args->conn_handle->contexts_mutex);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
@@ -1836,27 +1877,78 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     ATOM_FIRST = enif_make_atom(env, "first");
     ATOM_LAST = enif_make_atom(env, "last");
 
-    ASYNC_NIF_LOAD(wterl, *priv_data);
+    struct wterl_priv_data *priv = enif_alloc(sizeof(struct wterl_priv_data));
+    if (!priv)
+        return ENOMEM;
+    memset(priv, 0, sizeof(struct wterl_priv_data));
 
-    return *priv_data ? 0 : -1;
+    /* Note: !!! the first element of our priv_data struct *must* be the
+       pointer to the async_nif's private data which we set here. */
+    ASYNC_NIF_LOAD(wterl, priv->async_nif_priv);
+
+    priv->conns_mutex = enif_mutex_create(NULL);
+    priv->conns = kh_init(conns);
+    *priv_data = priv;
+    return *priv_data ? 0 : ENOMEM;
 }
 
 static int
 on_reload(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 {
-    return 0; // TODO: Determine what should be done here.
+    return 0; // TODO: implement
 }
 
 static void
 on_unload(ErlNifEnv *env, void *priv_data)
 {
-    ASYNC_NIF_UNLOAD(wterl, env); // TODO: Review/test this.
+    unsigned int i;
+    struct wterl_priv_data *priv = (struct wterl_priv_data *)priv_data;
+    khash_t(conns) *h;
+    khiter_t itr;
+
+    enif_mutex_lock(priv->conns_mutex);
+    h = priv->conns;
+
+    for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
+        if (kh_exist(h, itr)) {
+            WterlConnHandle *c = kh_val(h, itr);
+            if (c) {
+                enif_mutex_lock(c->contexts_mutex);
+                enif_free((void*)c->session_config);
+                for (i = 0; i < ASYNC_NIF_MAX_WORKERS; i++) {
+                    kh_destroy(cursors, c->contexts[i].cursors);
+                }
+            }
+
+            /* This should close all cursors and sessions. */
+            c->conn->close(c->conn, NULL);
+        }
+    }
+
+    /* Continue to hold the context mutex while unloading the async_nif
+       to prevent new work from coming in while shutting down. */
+    ASYNC_NIF_UNLOAD(wterl, env, priv->async_nif_priv);
+
+    for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
+        if (kh_exist(h, itr)) {
+            WterlConnHandle *c = kh_val(h, itr);
+            if (c) {
+                enif_mutex_unlock(c->contexts_mutex);
+                enif_mutex_destroy(c->contexts_mutex);
+            }
+        }
+    }
+
+    kh_destroy(conns, h);
+    enif_mutex_unlock(priv->conns_mutex);
+    enif_mutex_destroy(priv->conns_mutex);
+    enif_free(priv);
 }
 
 static int
 on_upgrade(ErlNifEnv *env, void **priv_data, void **old_priv_data, ERL_NIF_TERM load_info)
 {
-    ASYNC_NIF_UPGRADE(wterl, env); // TODO: Review/test this.
+    ASYNC_NIF_UPGRADE(wterl, env); // TODO: implement
     return 0;
 }
 

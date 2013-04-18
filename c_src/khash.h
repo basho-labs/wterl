@@ -372,6 +372,26 @@ static const double __ac_HASH_UPPER = 0.77;
 */
 #define kh_int64_hash_equal(a, b) ((a) == (b))
 /*! @function
+  @abstract     Pointer hash function
+  @param  key   The integer void *
+  @return       The hash value [khint_t]
+*/
+#define kh_ptr_hash_func(key) (khint32_t)(key)
+/*! @function
+  @abstract     Pointer comparison function
+*/
+#define kh_ptr_hash_equal(a, b) ((a) == (b))
+/*! @function
+  @abstract     64-bit pointer hash function
+  @param  key   The integer void *
+  @return       The hash value [khint_t]
+*/
+#define kh_ptr64_hash_func(key) (khint32_t)(((khint64_t)key)>>33^((khint64_t)key)^((khint64_t)key)<<11)
+/*! @function
+  @abstract     64-bit pointer comparison function
+*/
+#define kh_ptr64_hash_equal(a, b) ((a) == (b))
+/*! @function
   @abstract     const char* hash function
   @param  s     Pointer to a null terminated string
   @return       The hash value
@@ -560,6 +580,19 @@ static kh_inline khint_t __ac_Wang_hash(khint_t key)
 	} }
 
 /* More conenient interfaces */
+
+/*! @function
+  @abstract     Instantiate a hash map containing (void *) keys
+  @param  name  Name of the hash table [symbol]
+  @param  khval_t  Type of values [type]
+*/
+#ifdef __x86_64__ 
+#define KHASH_MAP_INIT_PTR(name, khval_t)				\
+    KHASH_INIT(name, void*, khval_t, 1, kh_ptr64_hash_func, kh_ptr64_hash_equal)
+#else
+#define KHASH_MAP_INIT_PTR(name, khval_t)				\
+    KHASH_INIT(name, void*, khval_t, 1, kh_ptr_hash_func, kh_ptr_hash_equal)
+#endif
 
 /*! @function
   @abstract     Instantiate a hash set containing integer keys

@@ -151,8 +151,8 @@ start(Partition, Config) ->
 
 %% @doc Stop the wterl backend
 -spec stop(state()) -> ok.
-stop(_State) ->
-    ok.
+stop(#state{connection=Connection}) ->
+    wterl_conn:close(Connection).
 
 %% @doc Retrieve an object from the wterl backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
