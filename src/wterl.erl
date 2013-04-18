@@ -516,7 +516,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 -define(TEST_DATA_DIR, "test/wterl.basic").
 
 open_test_conn(DataDir) ->
-    open_test_conn(DataDir, [{create,true},{cache_size,"100MB"}]).
+    open_test_conn(DataDir, [{create,true},{cache_size,"100MB"},{session_max, 8192}]).
 open_test_conn(DataDir, OpenConfig) ->
     {ok, CWD} = file:get_cwd(),
     rmdir:path(filename:join([CWD, DataDir])), %?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
