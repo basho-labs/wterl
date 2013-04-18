@@ -1039,13 +1039,6 @@ ASYNC_NIF_DECL(
       return;
     }
 
-    WT_SESSION *session = NULL;
-    int rc = __session_for(args->conn_handle, worker_id, &session);
-    if (rc != 0) {
-	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-	return;
-    }
-
     WT_CURSOR *cursor = NULL;
     rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
@@ -1099,13 +1092,6 @@ ASYNC_NIF_DECL(
     if (!enif_inspect_binary(env, args->key, &key)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
       return;
-    }
-
-    WT_SESSION *session = NULL;
-    int rc = __session_for(args->conn_handle, worker_id, &session);
-    if (rc != 0) {
-	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-	return;
     }
 
     WT_CURSOR *cursor = NULL;
@@ -1184,13 +1170,6 @@ ASYNC_NIF_DECL(
     if (!enif_inspect_binary(env, args->value, &value)) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
       return;
-    }
-
-    WT_SESSION *session = NULL;
-    int rc = __session_for(args->conn_handle, worker_id, &session);
-    if (rc != 0) {
-	ASYNC_NIF_REPLY(__strerror_term(env, rc));
-	return;
     }
 
     WT_CURSOR *cursor = NULL;
