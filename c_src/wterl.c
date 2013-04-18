@@ -1040,7 +1040,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR *cursor = NULL;
-    rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
+    int rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
 	return;
@@ -1095,7 +1095,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR *cursor = NULL;
-    rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
+    int rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
 	return;
@@ -1173,7 +1173,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR *cursor = NULL;
-    rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
+    int rc = __retain_cursor(args->conn_handle, worker_id, args->uri, &cursor);
     if (rc != 0) {
 	ASYNC_NIF_REPLY(__strerror_term(env, rc));
 	return;
