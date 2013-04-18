@@ -147,8 +147,10 @@ __close_all_sessions(WterlConnHandle *conn_handle)
             for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
                 if (kh_exist(h, itr)) {
                     WT_CURSOR *cursor = kh_val(h, itr);
+                    char *key = (char *)kh_key(h, itr);
                     cursor->close(cursor);
                     kh_del(cursors, h, itr);
+                    enif_free(key);
                     kh_value(h, itr) = NULL;
                 }
             }
@@ -176,8 +178,10 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
             khiter_t itr = kh_get(cursors, h, (char *)uri);
             if (itr != kh_end(h)) {
                 WT_CURSOR *cursor = kh_value(h, itr);
+                char *key = (char *)kh_key(h, itr);
                 cursor->close(cursor);
                 kh_del(cursors, h, itr);
+                enif_free(key);
                 kh_value(h, itr) = NULL;
             }
         }
@@ -208,8 +212,15 @@ __retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char
 	    return rc;
         }
 
+        char *key = enif_alloc(sizeof(Uri));
+        if (!key) {
+            session->close(session, NULL);
+            enif_mutex_unlock(conn_handle->contexts_mutex);
+            return ENOMEM;
+        }
+        memcpy(key, uri, 128);
         int itr_status;
-        itr = kh_put(cursors, h, uri, &itr_status);
+        itr = kh_put(cursors, h, key, &itr_status);
 	kh_value(h, itr) = *cursor;
         enif_mutex_unlock(conn_handle->contexts_mutex);
     }
@@ -378,7 +389,7 @@ ASYNC_NIF_DECL(
     h = args->priv->conns;
     khiter_t itr;
     itr = kh_get(conns, h, conn);
-    if (itr == 0) {
+    if (itr != kh_end(h)) {
         /* key exists in table (as expected) delete it */
         kh_del(conns, h, itr);
         kh_value(h, itr) = NULL;
@@ -1916,6 +1927,7 @@ on_unload(ErlNifEnv *env, void *priv_data)
                 enif_mutex_lock(c->contexts_mutex);
                 enif_free((void*)c->session_config);
                 for (i = 0; i < ASYNC_NIF_MAX_WORKERS; i++) {
+                    // TODO: free keys
                     kh_destroy(cursors, c->contexts[i].cursors);
                 }
             }
