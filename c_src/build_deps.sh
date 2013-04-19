@@ -175,7 +175,7 @@ case "$1" in
         cp -p -P $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libwiredtiger_snappy.so ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libwiredtiger_bzip2.so* ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/libbz2.so.* ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libsnappy.so* ${BASEDIR}/../priv
         ;;
 esac
