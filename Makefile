@@ -3,6 +3,7 @@ TARGET=		wterl
 REBAR=		./rebar
 #REBAR=		/usr/bin/env rebar
 ERL=		/usr/bin/env erl
+ERLEXEC=	${ERL_ROOTDIR}/lib/erlang/erts-5.9.1/bin/erlexec
 DIALYZER=	/usr/bin/env dialyzer
 
 
@@ -51,5 +52,30 @@ analyze: compile
 repl:
 	$(ERL) -pz deps/lager/ebin -pa ebin
 
+gdb-repl:
+	USE_GDB=1 $(ERL) -pz deps/lager/ebin -pa ebin
+
 eunit-repl:
 	$(ERL) -pz deps/lager/ebin -pa ebin -pa .eunit
+
+gdb-eunit-repl:
+	USE_GDB=1 $(ERL) -pa .eunit -pz deps/lager/ebin -pz ebin -exec 'cd(".eunit").'
+
+
+ERL_TOP=		/home/gburd/eng/otp_R15B01
+CERL=			${ERL_TOP}/bin/cerl
+VALGRIND_MISC_FLAGS=	"--verbose --leak-check=full --show-reachable=yes --trace-children=yes --track-origins=yes --suppressions=${ERL_TOP}/erts/emulator/valgrind/suppress.standard --show-possibly-lost=no --malloc-fill=AB --free-fill=CD"
+
+helgrind:
+	valgrind --verbose --tool=helgrind \
+	            --leak-check=full
+	            --show-reachable=yes \
+	            --trace-children=yes \
+	            --track-origins=yes \
+	            --suppressions=${ERL_TOP}/erts/emulator/valgrind/suppress.standard \
+	            --show-possibly-lost=no \
+	            --malloc-fill=AB \
+	            --free-fill=CD ${ERLEXEC} -pz deps/lager/ebin -pa ebin -pa .eunit
+
+valgrind:
+	${CERL} -valgrind ${VALGRIND_FLAGS} --log-file=${ROOTDIR}/valgrind_log-beam.smp.%p -- -pz deps/lager/ebin -pa ebin -pa .eunit -exec 'eunit:test(wterl).'
