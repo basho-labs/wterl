@@ -154,8 +154,6 @@ struct async_nif_state {
 #define ASYNC_NIF_WORK_ENV new_env
 
 #define ASYNC_NIF_REPLY(msg) enif_send(NULL, pid, env, enif_make_tuple2(env, ref, msg))
-// TODO: fix, currently NOREPLY() will block cause the recieve in async_nif.hrl wait forever
-#define ASYNC_NIF_NOREPLY() enif_free_env(env)
 
 /**
  * TODO:
@@ -246,11 +244,8 @@ async_nif_worker_fn(void *arg)
       /* and then call the post-work cleanup function. */
       req->fn_post(req->args);
 
-      /* Note: we don't call enif_free_env(req->env) because somewhere in the
-         work block there has been a call to enif_send() which invalidates the
-         environment we created which in theory will cause the next GC to free
-         it for us).  If a work block doesn't call ASYNC_NIF_REPLY() at some
-         point then it must call ASYNC_NIF_NOREPLY() to free this env. */
+      /* Free all resources allocated for this async request. */
+      enif_free_env(req->env);
       enif_free(req->args);
       enif_free(req);
       req = NULL;
@@ -301,6 +296,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
                     enif_make_tuple2(req->env, enif_make_atom(req->env, "error"),
                                      enif_make_atom(req->env, "shutdown")));
           req->fn_post(req->args);
+          enif_free_env(req->env);
           enif_free(req->args);
           enif_free(req);
           });

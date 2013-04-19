@@ -299,7 +299,7 @@ ASYNC_NIF_DECL(
   { // pre
 
     if (!(argc == 3 &&
-          enif_get_string(env, argv[0], args->homedir, sizeof args->homedir, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[0], args->homedir, sizeof args->homedir, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[1]) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -448,7 +448,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -502,7 +502,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -568,8 +568,8 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 4 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->oldname, sizeof args->oldname, ERL_NIF_LATIN1) &&
-          enif_get_string(env, argv[2], args->newname, sizeof args->newname, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->oldname, sizeof args->oldname, ERL_NIF_LATIN1) > 0) &&
+          (enif_get_string(env, argv[2], args->newname, sizeof args->newname, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[3]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -635,7 +635,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -746,7 +746,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 5 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[4]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -921,7 +921,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -983,7 +983,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -1044,7 +1044,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -1099,7 +1099,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
@@ -1170,7 +1170,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 4 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]) &&
           enif_is_binary(env, argv[3]))) {
       ASYNC_NIF_RETURN_BADARG();
@@ -1236,7 +1236,7 @@ ASYNC_NIF_DECL(
 
     if (!(argc == 3 &&
           enif_get_resource(env, argv[0], wterl_conn_RESOURCE, (void**)&args->conn_handle) &&
-          enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) &&
+          (enif_get_string(env, argv[1], args->uri, sizeof args->uri, ERL_NIF_LATIN1) > 0) &&
           enif_is_binary(env, argv[2]))) {
       ASYNC_NIF_RETURN_BADARG();
     }
