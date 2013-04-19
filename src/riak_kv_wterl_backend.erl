@@ -345,9 +345,9 @@ status(#state{status_cursor=Cursor}) ->
         {ok, Stats} ->
             Stats;
         {error, {eperm, _}} -> % TODO: review/fix this logic
-            [];
+            {ok, []};
         _ ->
-            []
+            {ok, []}
     end.
 
 %% @doc Register an asynchronous callback
