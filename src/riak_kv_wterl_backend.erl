@@ -333,6 +333,7 @@ is_empty(#state{is_empty_cursor=Cursor}) ->
     wterl:cursor_reset(Cursor),
     case wterl:cursor_next(Cursor) of
         not_found -> true;
+        {error, {eperm, _}} -> false; % TODO: review/fix this logic
         _ -> false
     end.
 
@@ -343,6 +344,8 @@ status(#state{status_cursor=Cursor}) ->
     case fetch_status(Cursor) of
         {ok, Stats} ->
             Stats;
+        {error, {eperm, _}} -> % TODO: review/fix this logic
+            [];
         _ ->
             []
     end.
