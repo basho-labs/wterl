@@ -171,11 +171,11 @@ case "$1" in
              -a -f $BASEDIR/system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
-        cp $BASEDIR/system/bin/wt ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libwiredtiger_snappy.so ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
-        cp $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/bin/wt ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/libwiredtiger_snappy.so ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/libwiredtiger_bzip2.so* ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/libsnappy.so* ${BASEDIR}/../priv
         ;;
 esac
