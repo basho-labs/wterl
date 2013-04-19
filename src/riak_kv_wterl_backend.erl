@@ -296,7 +296,14 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{connection=Connection, table=Tabl
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor)
+                            case wterl:cursor_close(Cursor) of
+                                ok ->
+                                    ok;
+                                {error, {eperm, _}} -> %% TODO: review/fix
+                                    ok;
+                                {error, _}=E ->
+                                    E
+                            end
                         end
                 end
         end,
@@ -312,6 +319,8 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{connection=Connection, table=Tabl
 drop(#state{connection=Connection, table=Table}=State) ->
     case wterl:drop(Connection, Table) of
         ok ->
+            {ok, State};
+        {error, {ebusy, _}} -> %% TODO: review/fix
             {ok, State};
         Error ->
             {error, Error, State}
