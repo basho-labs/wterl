@@ -147,7 +147,7 @@ create_nif(_AsyncNif, _Ref, _Name, _Config) ->
 -spec drop(connection(), string()) -> ok | {error, term()}.
 -spec drop(connection(), string(), config_list()) -> ok | {error, term()}.
 drop(Ref, Name) ->
-    drop(Ref, Name, []).
+    drop(Ref, Name, [{force, true}]).
 drop(Ref, Name, Config) ->
     ?ASYNC_NIF_CALL(fun drop_nif/4, [Ref, Name, config_to_bin(Config)]).
 

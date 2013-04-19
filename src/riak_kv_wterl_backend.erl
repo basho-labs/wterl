@@ -310,7 +310,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{connection=Connection, table=Tabl
 %% @doc Delete all objects from this wterl backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
 drop(#state{connection=Connection, table=Table}=State) ->
-    case wterl:truncate(Connection, Table) of
+    case wterl:drop(Connection, Table) of
         ok ->
             {ok, State};
         Error ->
@@ -355,7 +355,7 @@ max_sessions(Config) ->
             undefined -> 1024;
             Size -> Size
         end,
-    Est = 1000 * (RingSize * erlang:system_info(schedulers)), % TODO: review/fix this logic
+    Est = 100 * (RingSize * erlang:system_info(schedulers)), % TODO: review/fix this logic
     case Est > 1000000000  of % Note: WiredTiger uses a signed int for this
         true -> 1000000000;
         false -> Est
