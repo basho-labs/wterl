@@ -1308,12 +1308,13 @@ ASYNC_NIF_DECL(
   },
   { // work
 
-    WT_CURSOR *cursor = args->cursor_handle->cursor;
-    WT_SESSION *session = args->cursor_handle->session;
     /* Note: session->close() will cause all open cursors in the session to be
        closed first, so we don't have explicitly to do that here.
+
+       WT_CURSOR *cursor = args->cursor_handle->cursor;
        rc = cursor->close(cursor);
-    */
+     */
+    WT_SESSION *session = args->cursor_handle->session;
     int rc = session->close(session, NULL);
     ASYNC_NIF_REPLY(rc == 0 ? ATOM_OK : __strerror_term(env, rc));
   },
