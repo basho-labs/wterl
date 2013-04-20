@@ -104,7 +104,10 @@ ASYNC_NIF_INIT(wterl);
 
 
 /**
+ * Open a WT_SESSION for the thread context 'ctx' to use, also init the
+ * shared cursor hash table.
  *
+ * Note: always call within enif_mutex_lock/unlock(conn_handle->contexts_mutex)
  */
 static int
 __init_session_and_cursor_cache(WterlConnHandle *conn_handle, WterlCtx *ctx)
@@ -114,7 +117,6 @@ __init_session_and_cursor_cache(WterlConnHandle *conn_handle, WterlCtx *ctx)
     int rc = conn->open_session(conn, NULL, conn_handle->session_config, &ctx->session);
     if (rc != 0) {
         ctx->session = NULL;
-        enif_mutex_unlock(conn_handle->contexts_mutex);
         return rc;
     }
     ctx->cursors = kh_init(cursors);
