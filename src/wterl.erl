@@ -461,6 +461,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
      {eviction_target, integer},
      {eviction_trigger, integer},
      {extensions, {list, quoted}},
+     {statistics_fast, bool},
      {force, bool},
      {from, string},
      {hazard_max, integer},
