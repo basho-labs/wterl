@@ -181,8 +181,10 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       /* Now that we hold the lock, check for shutdown.  As long as we
          hold this lock either a) we're shutting down so exit now or
          b) this queue will be valid until we release the lock. */
-      if (async_nif->shutdown)
+      if (async_nif->shutdown) {
+          enif_mutex_unlock(q->reqs_mutex);
           return 0;
+      }
 
       if (fifo_q_full(reqs, q->reqs)) { // TODO: || (q->avg_latency > median_latency)
           enif_mutex_unlock(q->reqs_mutex);
@@ -193,7 +195,8 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       }
   } while(1);
 
-  /* And add the request to their work queue. */
+  /* We hold the queue's lock, and we've seletect a reasonable queue for this
+     new request so add the request. */
   fifo_q_put(reqs, q->reqs, req);
 
   /* Build the term before releasing the lock so as not to race on the use of
@@ -235,16 +238,17 @@ async_nif_worker_fn(void *arg)
       req = fifo_q_get(reqs, q->reqs);
       enif_mutex_unlock(q->reqs_mutex);
 
-      /* Ensure that there is at least one other worker watching this queue. */
+      /* Ensure that there is at least one other worker thread watching this
+         queue. */
       enif_cond_signal(q->reqs_cnd);
 
-      /* Finally, do the work, */
+      /* Perform the work. */
       req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
 
-      /* and then call the post-work cleanup function. */
+      /* Now call the post-work cleanup function. */
       req->fn_post(req->args);
 
-      /* Free all resources allocated for this async request. */
+      /* Free resources allocated for this async request. */
       enif_free_env(req->env);
       enif_free(req->args);
       enif_free(req);
