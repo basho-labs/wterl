@@ -1,6 +1,6 @@
 {application, wterl,
  [
-  {description, "Erlang Wrapper for WiredTiger"},
+  {description, "Erlang NIF Wrapper for WiredTiger"},
   {vsn, "0.9.0"},
   {registered, []},
   {applications, [

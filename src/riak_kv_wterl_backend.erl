@@ -22,7 +22,6 @@
 
 -module(riak_kv_wterl_backend).
 -behavior(temp_riak_kv_backend).
--author('Steve Vinoski <steve@basho.com>').
 
 %% KV Backend API
 -export([api_version/0,
@@ -51,13 +50,11 @@
 %%-define(CAPABILITIES, [async_fold, indexes]).
 -define(CAPABILITIES, [async_fold]).
 
--record(pass, {session :: wterl:session(),
-               cursor  :: wterl:cursor()}).
--type pass() :: #pass{}.
-
 -record(state, {table :: string(),
+                type :: string(),
                 connection :: wterl:connection(),
-                passes :: [pass()]}).
+                is_empty_cursor :: wterl:cursor(),
+                status_cursor :: wterl:cursor()}).
 
 -type state() :: #state{}.
 -type config() :: [{atom(), term()}].
@@ -91,39 +88,80 @@ start(Partition, Config) ->
                 ok;
             {error, {already_started, _}} ->
                 ok;
-        {error, Reason1} ->
-            lager:error("Failed to start wterl: ~p", [Reason1]),
-            {error, Reason1}
+            {error, Reason1} ->
+                lager:error("Failed to start wterl: ~p", [Reason1]),
+                {error, Reason1}
         end,
     case AppStart of
         ok ->
-            Table = "lsm:wt" ++ integer_to_list(Partition),
-            {ok, Connection} = establish_connection(Config),
-            Passes = establish_passes(erlang:system_info(schedulers), Connection, Table),
-            {ok, #state{table=Table, connection=Connection, passes=Passes}};
-        {error, Reason2} ->
-            {error, Reason2}
+            Type =
+                case wterl:config_value(type, Config, "lsm") of
+                    {type, "lsm"} -> "lsm";
+                    {type, "table"} -> "table";
+                    {type, "btree"} -> "table";
+                    {type, BadType} ->
+                        lager:info("wterl:start ignoring unknown type ~p, using lsm instead", [BadType]),
+                        "lsm";
+                    _ ->
+                        lager:info("wterl:start ignoring mistaken setting defaulting to lsm"),
+                        "lsm"
+                end,
+            {ok, Connection} = establish_connection(Config, Type),
+            Table = Type ++ ":" ++ integer_to_list(Partition),
+            Compressor =
+                case wterl:config_value(block_compressor, Config, "snappy") of
+                    {block_compressor, "snappy"}=C -> [C];
+                    {block_compressor, "bzip2"}=C -> [C];
+                    {block_compressor, "none"} -> [];
+                    {block_compressor, none} -> [];
+                    {block_compressor, _} -> [{block_compressor, "snappy"}];
+                    _ -> [{block_compressor, "snappy"}]
+                end,
+            TableOpts =
+                case Type of
+                    "lsm" ->
+                        [{internal_page_max, "128K"},
+                         {leaf_page_max, "128K"},
+                         {lsm_chunk_size, "25MB"},
+                         {prefix_compression, false},
+                         {lsm_bloom_newest, true},
+                         {lsm_bloom_oldest, true} ,
+                         {lsm_bloom_bit_count, 128},
+                         {lsm_bloom_hash_count, 64},
+                         {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
+                        ] ++ Compressor;
+                    "table" ->
+                        Compressor
+                end,
+            case wterl:create(Connection, Table, TableOpts) of
+                ok ->
+                    case establish_utility_cursors(Connection, Table) of
+                        {ok, IsEmptyCursor, StatusCursor} ->
+                            {ok, #state{table=Table, type=Type,
+                                        connection=Connection,
+                                        is_empty_cursor=IsEmptyCursor,
+                                        status_cursor=StatusCursor}};
+                        {error, Reason2} ->
+                            {error, Reason2}
+                    end;
+                {error, Reason3} ->
+                    {error, Reason3}
+                end
     end.
 
 %% @doc Stop the wterl backend
 -spec stop(state()) -> ok.
-stop(#state{passes=Passes}) ->
-    lists:foreach(fun(Elem) ->
-                          {Session, Cursor} = Elem,
-                          ok = wterl:cursor_close(Cursor),
-                          ok = wterl:session_close(Session)
-                  end, Passes),
-    ok.
+stop(_State) ->
+    ok. %% The connection is closed by wterl_conn:stop()
 
 %% @doc Retrieve an object from the wterl backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
                  {ok, any(), state()} |
                  {ok, not_found, state()} |
                  {error, term(), state()}.
-get(Bucket, Key, #state{passes=Passes}=State) ->
+get(Bucket, Key, #state{connection=Connection, table=Table}=State) ->
     WTKey = to_object_key(Bucket, Key),
-    {_Session, Cursor} = lists:nth(erlang:system_info(scheduler_id), Passes),
-    case wterl:cursor_search(Cursor, WTKey) of
+    case wterl:get(Connection, Table, WTKey) of
         {ok, Value} ->
             {ok, Value, State};
         not_found  ->
@@ -140,10 +178,8 @@ get(Bucket, Key, #state{passes=Passes}=State) ->
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
                  {error, term(), state()}.
-put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{passes=Passes}=State) ->
-    WTKey = to_object_key(Bucket, PrimaryKey),
-    {_Session, Cursor} = lists:nth(erlang:system_info(scheduler_id), Passes),
-    case wterl:cursor_insert(Cursor, WTKey, Val) of
+put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{connection=Connection, table=Table}=State) ->
+    case wterl:put(Connection, Table, to_object_key(Bucket, PrimaryKey), Val) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -157,10 +193,8 @@ put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{passes=Passes}=State) ->
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
                     {ok, state()} |
                     {error, term(), state()}.
-delete(Bucket, Key, _IndexSpecs, #state{passes=Passes}=State) ->
-    WTKey = to_object_key(Bucket, Key),
-    {_Session, Cursor} = lists:nth(erlang:system_info(scheduler_id), Passes),
-    case wterl:cursor_remove(Cursor, WTKey) of
+delete(Bucket, Key, _IndexSpecs, #state{connection=Connection, table=Table}=State) ->
+    case wterl:delete(Connection, Table, to_object_key(Bucket, Key)) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -172,14 +206,12 @@ delete(Bucket, Key, _IndexSpecs, #state{passes=Passes}=State) ->
                    any(),
                    [],
                    state()) -> {ok, any()} | {async, fun()}.
-fold_buckets(FoldBucketsFun, Acc, Opts, #state{table=Table}) ->
-    {ok, Connection} = wterl_conn:get(),
+fold_buckets(FoldBucketsFun, Acc, Opts, #state{connection=Connection, table=Table}) ->
     FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
-                {ok, Session} = wterl:session_open(Connection),
-                case wterl:cursor_open(Session, Table) of
-                    {error, "No such file or directory"} ->
+                case wterl:cursor_open(Connection, Table) of
+                    {error, {enoent, _Message}} ->
                         Acc;
                     {ok, Cursor} ->
                         try
@@ -190,8 +222,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{table=Table}) ->
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor),
-                            ok = wterl:session_close(Session)
+                            ok = wterl:cursor_close(Cursor)
                         end
                 end
         end,
@@ -207,7 +238,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{table=Table}) ->
                 any(),
                 [{atom(), term()}],
                 state()) -> {ok, term()} | {async, fun()}.
-fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
+fold_keys(FoldKeysFun, Acc, Opts, #state{connection=Connection, table=Table}) ->
     %% Figure out how we should limit the fold: by bucket, by
     %% secondary index, or neither (fold across everything.)
     Bucket = lists:keyfind(bucket, 1, Opts),
@@ -220,15 +251,12 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
            true            -> undefined
         end,
 
-    {ok, Connection} = wterl_conn:get(),
-
     %% Set up the fold...
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
     KeyFolder =
         fun() ->
-                {ok, Session} = wterl:session_open(Connection),
-                case wterl:cursor_open(Session, Table) of
-                    {error, "No such file or directory"} ->
+                case wterl:cursor_open(Connection, Table) of
+                    {error, {enoent, _Message}} ->
                         Acc;
                     {ok, Cursor} ->
                         try
@@ -237,8 +265,7 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor),
-                            ok = wterl:session_close(Session)
+                            ok = wterl:cursor_close(Cursor)
                         end
                 end
         end,
@@ -254,15 +281,13 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{table=Table}) ->
                    any(),
                    [{atom(), term()}],
                    state()) -> {ok, any()} | {async, fun()}.
-fold_objects(FoldObjectsFun, Acc, Opts, #state{table=Table}) ->
-    {ok, Connection} = wterl_conn:get(),
+fold_objects(FoldObjectsFun, Acc, Opts, #state{connection=Connection, table=Table}) ->
     Bucket =  proplists:get_value(bucket, Opts),
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                {ok, Session} = wterl:session_open(Connection),
-                case wterl:cursor_open(Session, Table) of
-                    {error, "No such file or directory"} ->
+                case wterl:cursor_open(Connection, Table) of
+                    {error, {enoent, _Message}} ->
                         Acc;
                     {ok, Cursor} ->
                         try
@@ -271,8 +296,14 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{table=Table}) ->
                             {break, AccFinal} ->
                                 AccFinal
                         after
-                            ok = wterl:cursor_close(Cursor),
-                            ok = wterl:session_close(Session)
+                            case wterl:cursor_close(Cursor) of
+                                ok ->
+                                    ok;
+                                {error, {eperm, _}} -> %% TODO: review/fix
+                                    ok;
+                                {error, _}=E ->
+                                    E
+                            end
                         end
                 end
         end,
@@ -285,10 +316,11 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{table=Table}) ->
 
 %% @doc Delete all objects from this wterl backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
-drop(#state{passes=Passes, table=Table}=State) ->
-    {Session, _Cursor} = lists:nth(erlang:system_info(scheduler_id), Passes),
-    case wterl:session_truncate(Session, Table) of
+drop(#state{connection=Connection, table=Table}=State) ->
+    case wterl:drop(Connection, Table) of
         ok ->
+            {ok, State};
+        {error, {ebusy, _}} -> %% TODO: review/fix
             {ok, State};
         Error ->
             {error, Error, State}
@@ -297,24 +329,25 @@ drop(#state{passes=Passes, table=Table}=State) ->
 %% @doc Returns true if this wterl backend contains any
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
-is_empty(#state{passes=Passes}) ->
-    {_Session, Cursor} = lists:nth(erlang:system_info(scheduler_id), Passes),
+is_empty(#state{is_empty_cursor=Cursor}) ->
     wterl:cursor_reset(Cursor),
-    try
-        not_found =:= wterl:cursor_next(Cursor)
-    after
-        ok = wterl:cursor_close(Cursor)
+    case wterl:cursor_next(Cursor) of
+        not_found -> true;
+        {error, {eperm, _}} -> false; % TODO: review/fix this logic
+        _ -> false
     end.
 
 %% @doc Get the status information for this wterl backend
 -spec status(state()) -> [{atom(), term()}].
-status(#state{passes=Passes}) ->
-    {_Session, Cursor} = lists:nth(erlang:system_info(scheduler_id), Passes),
-    try
-        Stats = fetch_status(Cursor),
-        [{stats, Stats}]
-    after
-        ok = wterl:cursor_close(Cursor)
+status(#state{status_cursor=Cursor}) ->
+    wterl:cursor_reset(Cursor),
+    case fetch_status(Cursor) of
+        {ok, Stats} ->
+            Stats;
+        {error, {eperm, _}} -> % TODO: review/fix this logic
+            {ok, []};
+        _ ->
+            {ok, []}
     end.
 
 %% @doc Register an asynchronous callback
@@ -327,16 +360,35 @@ callback(_Ref, _Msg, State) ->
 %% Internal functions
 %% ===================================================================
 
+%% @private
 max_sessions(Config) ->
     RingSize =
         case app_helper:get_prop_or_env(ring_creation_size, Config, riak_core) of
             undefined -> 1024;
             Size -> Size
         end,
-    2 * (RingSize * erlang:system_info(schedulers)).
+    Est = 100 * (RingSize * erlang:system_info(schedulers)), % TODO: review/fix this logic
+    case Est > 1000000000  of % Note: WiredTiger uses a signed int for this
+        true -> 1000000000;
+        false -> Est
+    end.
 
 %% @private
-establish_connection(Config) ->
+establish_utility_cursors(Connection, Table) ->
+    case wterl:cursor_open(Connection, Table) of
+        {ok, IsEmptyCursor} ->
+            case wterl:cursor_open(Connection, "statistics:" ++ Table, [{statistics_fast, true}]) of
+                {ok, StatusCursor} ->
+                    {ok, IsEmptyCursor, StatusCursor};
+                {error, Reason1} ->
+                    {error, Reason1}
+            end;
+        {error, Reason2} ->
+            {error, Reason2}
+    end.
+
+%% @private
+establish_connection(Config, Type) ->
     %% Get the data root directory
     case app_helper:get_prop_or_env(data_root, Config, wterl) of
         undefined ->
@@ -344,8 +396,18 @@ establish_connection(Config) ->
             {error, data_root_unset};
         DataRoot ->
             ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
+
+            %% WT Connection Options:
+            %% NOTE: LSM auto-checkpoints, so we don't have too.
+            CheckpointSetting =
+                case Type =:= "lsm" of
+                    true ->
+                        [];
+                    false ->
+                        app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 10}])
+                end,
             RequestedCacheSize = app_helper:get_prop_or_env(cache_size, Config, wterl),
-            Opts =
+            ConnectionOpts =
                 orddict:from_list(
                   [ wterl:config_value(create, Config, true),
                     wterl:config_value(sync, Config, false),
@@ -354,54 +416,24 @@ establish_connection(Config) ->
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
-                    %% NOTE: LSM auto-checkpoints, so we don't have too.
-                    %% wterl:config_value(checkpoint, Config, [{wait, 10}]), % sec
                     wterl:config_value(verbose, Config, [
-                          %"ckpt" "block", "shared_cache", "evictserver", "fileops",
-                          %"hazard", "mutex", "read", "readserver", "reconcile",
-                          %"salvage", "verify", "write", "evict", "lsm"
-                    ]) ] ++ proplists:get_value(wterl, Config, [])), % sec
-            case wterl_conn:open(DataRoot, Opts) of
+                         %"ckpt" "block", "shared_cache", "evictserver", "fileops",
+                         %"hazard", "mutex", "read", "readserver", "reconcile",
+                         %"salvage", "verify", "write", "evict", "lsm"
+                         ]) ] ++ CheckpointSetting ++ proplists:get_value(wterl, Config, [])), % sec
+
+
+
+            %% WT Session Options:
+            SessionOpts = [{isolation, "snapshot"}],
+
+            case wterl_conn:open(DataRoot, ConnectionOpts, SessionOpts) of
                 {ok, Connection} ->
                     {ok, Connection};
                 {error, Reason2} ->
                     lager:error("Failed to establish a WiredTiger connection, wterl backend unable to start: ~p\n", [Reason2]),
                     {error, Reason2}
             end
-    end.
-
-establish_passes(Count, Connection, Table)
-  when is_number(Count), Count > 0 ->
-    lists:map(fun(_Elem) ->
-                      {ok, Session} = establish_session(Connection, Table),
-                      {ok, Cursor} = wterl:cursor_open(Session, Table),
-                      {Session, Cursor}
-                  end, lists:seq(1, Count)).
-
-%% @private
-establish_session(Connection, Table) ->
-    case wterl:session_open(Connection, wterl:config_to_bin([{isolation, "snapshot"}])) of
-        {ok, Session} ->
-            SessionOpts =
-                [{block_compressor, "snappy"},
-                 {internal_page_max, "128K"},
-                 {leaf_page_max, "128K"},
-                 {lsm_chunk_size, "25MB"},
-                 {lsm_bloom_newest, true},
-                 {lsm_bloom_oldest, true} ,
-                 {lsm_bloom_bit_count, 128},
-                 {lsm_bloom_hash_count, 64},
-                 {lsm_bloom_config, [{leaf_page_max, "8MB"}]} ],
-            case wterl:session_create(Session, Table, wterl:config_to_bin(SessionOpts)) of
-                ok ->
-                    {ok, Session};
-                {error, Reason} ->
-                    lager:error("Failed to start wterl backend: ~p\n", [Reason]),
-                    {error, Reason}
-            end;
-        {error, Reason} ->
-            lager:error("Failed to open a WiredTiger session: ~p\n", [Reason]),
-            {error, Reason}
     end.
 
 %% @private
@@ -512,7 +544,9 @@ from_index_key(LKey) ->
 %% @private
 %% Return all status from wterl statistics cursor
 fetch_status(Cursor) ->
-    fetch_status(Cursor, wterl:cursor_next_value(Cursor), []).
+    {ok, fetch_status(Cursor, wterl:cursor_next_value(Cursor), [])}.
+fetch_status(_Cursor, {error, _}, Acc) ->
+    lists:reverse(Acc);
 fetch_status(_Cursor, not_found, Acc) ->
     lists:reverse(Acc);
 fetch_status(Cursor, {ok, Stat}, Acc) ->
@@ -563,12 +597,14 @@ size_cache(RequestedSize) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/wterl-backend"),
+    {ok, CWD} = file:get_cwd(),
+    rmdir:path(filename:join([CWD, "test/wterl-backend"])), %?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, "test/wterl-backend"),
     temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/wterl-backend"),
+    {ok, CWD} = file:get_cwd(),
+    rmdir:path(filename:join([CWD, "test/wterl-backend"])), %?assertCmd("rm -rf test/wterl-backend"),
     application:set_env(wterl, data_root, ""),
     temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/wterl-backend"}]).
 

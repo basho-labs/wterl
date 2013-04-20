@@ -272,13 +272,16 @@ empty_check({Backend, State}) ->
     }.
 
 setup({BackendMod, Config}) ->
-    lager:start(),
+    application:start(lager),
     application:start(sasl),
     application:start(os_mon),
     {ok, S} = BackendMod:start(42, Config),
     {BackendMod, S}.
 
 cleanup({BackendMod, S}) ->
-    ok = BackendMod:stop(S).
+    ok = BackendMod:stop(S),
+    application:stop(lager),
+    application:stop(sasl),
+    application:stop(os_mon).
 
 -endif. % TEST
