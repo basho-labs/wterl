@@ -107,7 +107,7 @@ start(Partition, Config) ->
                         "lsm"
                 end,
             {ok, Connection} = establish_connection(Config, Type),
-            Table = Type ++ ":wt" ++ integer_to_list(Partition),
+            Table = Type ++ ":" ++ integer_to_list(Partition),
             Compressor =
                 case wterl:config_value(block_compressor, Config, "snappy") of
                     {block_compressor, "snappy"}=C -> [C];
