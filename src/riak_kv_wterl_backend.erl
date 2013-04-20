@@ -377,7 +377,7 @@ max_sessions(Config) ->
 establish_utility_cursors(Connection, Table) ->
     case wterl:cursor_open(Connection, Table) of
         {ok, IsEmptyCursor} ->
-            case wterl:cursor_open(Connection, "table:statistics", [{statistics_fast, true}]) of
+            case wterl:cursor_open(Connection, "statistics:" ++ Table, [{statistics_fast, true}]) of
                 {ok, StatusCursor} ->
                     {ok, IsEmptyCursor, StatusCursor};
                 {error, Reason1} ->
