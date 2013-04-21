@@ -296,6 +296,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
       /* Worker threads are stopped, now toss anything left in the queue. */
       struct async_nif_req_entry *req = NULL;
       fifo_q_foreach(reqs, q->reqs, req, {
+          enif_clear_env(req->env);
           enif_send(NULL, &req->pid, req->env,
                     enif_make_tuple2(req->env, enif_make_atom(req->env, "error"),
                                      enif_make_atom(req->env, "shutdown")));
