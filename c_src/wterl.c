@@ -119,7 +119,13 @@ __init_session_and_cursor_cache(WterlConnHandle *conn_handle, WterlCtx *ctx)
         ctx->session = NULL;
         return rc;
     }
+
     ctx->cursors = kh_init(cursors);
+    if (!ctx->cursors) {
+        ctx->session->close(ctx->session);
+        ctx->session = NULL;
+        return ENOMEM;
+    }
 
     return 0;
 }
@@ -847,14 +853,6 @@ ASYNC_NIF_DECL(
         item_start.data = start_key.data;
         item_start.size = start_key.size;
         start->set_key(start, item_start);
-        rc = start->search(start);
-        if (rc != 0) {
-            start->close(start);
-            session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->contexts_mutex);
-            ASYNC_NIF_REPLY(__strerror_term(env, rc));
-            return;
-        }
     }
 
     if (!args->to_last) {
@@ -890,15 +888,6 @@ ASYNC_NIF_DECL(
         item_stop.data = stop_key.data;
         item_stop.size = stop_key.size;
         stop->set_key(stop, item_stop);
-        rc = stop->search(stop);
-        if (rc != 0) {
-            start->close(start);
-            stop->close(stop);
-            session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->contexts_mutex);
-            ASYNC_NIF_REPLY(__strerror_term(env, rc));
-            return;
-        }
     }
 
     /* Always pass NULL for URI here because we always specify the range with the
