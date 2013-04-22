@@ -46,4 +46,5 @@ start_link() ->
 
 init([]) ->
     {ok, {{one_for_one, 5, 10}, [?CHILD(wterl_ets, worker),
-                                 ?CHILD(wterl_conn, worker)]}}.
+                                 ?CHILD(wterl_conn, worker),
+                                 ?CHILD(wterl_event_handler, worker)]}}.

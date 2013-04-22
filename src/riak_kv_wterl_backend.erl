@@ -417,7 +417,7 @@ establish_connection(Config, Type) ->
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
                     wterl:config_value(verbose, Config, [
-                         "ckpt" "block", "shared_cache", "evictserver", "fileops",
+                         "ckpt", "block", "shared_cache", "evictserver", "fileops",
                          "hazard", "mutex", "read", "readserver", "reconcile",
                          "salvage", "verify", "write", "evict", "lsm"
                          ]) ] ++ CheckpointSetting ++ proplists:get_value(wterl, Config, [])), % sec

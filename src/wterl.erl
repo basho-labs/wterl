@@ -67,6 +67,8 @@
          fold_keys/3,
          fold/3]).
 
+-export([set_event_handler_pid/1]).
+
 -include("async_nif.hrl").
 
 -ifdef(TEST).
@@ -94,11 +96,8 @@ nif_stub_error(Line) ->
 
 -spec init() -> ok | {error, any()}.
 init() ->
-    MsgPid = wterl_event_handler:start(),
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-                    [{wterl_vsn, "a1459ce"},
-                     {wiredtiger_vsn, "1.5.2-2-g8f2685b"},
-                     {message_pid, MsgPid}]).
+                    [{wterl_vsn, "a1459ce"}, {wiredtiger_vsn, "1.5.2-2-g8f2685b"}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -509,6 +508,11 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
             config_to_bin(Rest, Acc)
     end.
 
+
+-spec set_event_handler_pid(pid()) -> ok.
+set_event_handler_pid(Pid)
+  when is_pid(Pid) ->
+    ?nif_stub.
 
 
 %% ===================================================================
