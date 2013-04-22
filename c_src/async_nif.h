@@ -32,6 +32,10 @@ extern "C" {
 #include "stats.h" // TODO: measure, measure... measure again
 #endif
 
+#ifndef __UNUSED
+#define __UNUSED(v) ((void)(v))
+#endif
+
 #define ASYNC_NIF_MAX_WORKERS 128
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 
@@ -61,8 +65,12 @@ struct async_nif_state {
 
 #define ASYNC_NIF_DECL(decl, frame, pre_block, work_block, post_block)  \
   struct decl ## _args frame;                                           \
-  static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) work_block \
+  static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) { \
+  __UNUSED(worker_id);                                                  \
+  do work_block while(0);                                               \
+  }                                                                     \
   static void fn_post_ ## decl (struct decl ## _args *args) {           \
+    __UNUSED(args);                                                     \
     do post_block while(0);                                             \
   }                                                                     \
   static ERL_NIF_TERM decl(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv_in[]) { \
@@ -80,7 +88,7 @@ struct async_nif_state {
     if (async_nif->shutdown)                                            \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "shutdown"));         \
-    if (!(new_env = enif_alloc_env())) {                                \
+    if (!(new_env = enif_alloc_env())) { /*TODO: cache, enif_clear();*/ \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "enomem"));           \
     }                                                                   \
@@ -172,7 +180,7 @@ static ERL_NIF_TERM
 async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_entry *req, int hint)
 {
   /* Identify the most appropriate worker for this request. */
-  unsigned int qid = (hint != -1) ? hint : async_nif->next_q;
+  unsigned int qid = (hint >= 0) ? (unsigned int)hint : async_nif->next_q;
   struct async_nif_work_queue *q = NULL;
   do {
       q = &async_nif->queues[qid];
@@ -193,6 +201,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       } else {
           break;
       }
+      // TODO: at some point add in work sheading/stealing
   } while(1);
 
   /* We hold the queue's lock, and we've seletect a reasonable queue for this
@@ -265,6 +274,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
   unsigned int i;
   unsigned int num_queues = async_nif->num_queues;
   struct async_nif_work_queue *q = NULL;
+  __UNUSED(env);
 
   /* Signal the worker threads, stop what you're doing and exit.  To
      ensure that we don't race with the enqueue() process we first
@@ -401,6 +411,7 @@ async_nif_load()
 static void
 async_nif_upgrade(ErlNifEnv *env)
 {
+     __UNUSED(env);
     // TODO:
 }
 

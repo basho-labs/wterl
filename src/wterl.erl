@@ -94,9 +94,11 @@ nif_stub_error(Line) ->
 
 -spec init() -> ok | {error, any()}.
 init() ->
+    MsgPid = wterl_event_handler:start(),
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-                    [{wterl, "07061ed6e8252543c2f06b81a646eca6945cc558"},
-                     {wiredtiger, "6f7a4b961c744bfb21f0c21d4c28c2d162400f1b"}]).
+                    [{wterl_vsn, "a1459ce"},
+                     {wiredtiger_vsn, "1.5.2-2-g8f2685b"},
+                     {message_pid, MsgPid}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -862,7 +864,7 @@ prop_put_delete() ->
                      DataDir = "test/wterl.putdelete.qc",
                      Table = "table:eqc",
                      {ok, CWD} = file:get_cwd(),
-                     ?cmd("rm -rf "++DataDir),
+                     rmdir(filename:join([CWD, DataDir])), % ?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
                      ok = filelib:ensure_dir(filename:join([DataDir, "x"])),
                      {ok, ConnRef} = wterl:connection_open(DataDir, [{create,true}]),
                      try
