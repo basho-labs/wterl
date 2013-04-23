@@ -1,8 +1,12 @@
 *.beam
 .eunit
 ebin
-priv/*.so
 c_src/system
 c_src/wiredtiger*/
 c_src/*.o
+c_src/bzip2-1.0.6
+c_src/snappy-1.0.4
+deps/
+priv/
+log/
 *~
