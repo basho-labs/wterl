@@ -5,11 +5,17 @@ REBAR=		./rebar
 ERL=		/usr/bin/env erl
 ERLEXEC=	${ERL_ROOTDIR}/lib/erlang/erts-5.9.1/bin/erlexec
 DIALYZER=	/usr/bin/env dialyzer
-
+ARCHIVETAG?=	$(shell git describe --always --long --tags)
+ARCHIVE?=	$(shell basename $(CURDIR))-$(ARCHIVETAG)
+WT_ARCHIVETAG?=	$(shell cd c_src/wiredtiger-basho; git describe --always --long --tags)
 
 .PHONY: plt analyze all deps compile get-deps clean
 
 all: compile
+
+archive:
+	@rm -f $(ARCHIVE).tar.gz
+	git archive --format=tar --prefix=$(ARCHIVE)/ $(ARCHIVETAG) | gzip >$(ARCHIVE).tar.gz
 
 deps: get-deps
 
@@ -33,34 +39,52 @@ compile: c_src/wterl.o ebin/app_helper.beam
 	@$(REBAR) compile
 
 clean:
+	@rm -f $(ARCHIVE).tar.gz
 	@$(REBAR) clean
+
+xref:
+	@$(REBAR) xref skip_deps=true
 
 test: eunit
 
-eunit: compile
+eunit: compile-for-eunit
 	@$(REBAR) eunit skip_deps=true
 
-eunit_console:
-	@$(ERL) -pa .eunit deps/lager/ebin
+eqc: compile-for-eqc
+	@$(REBAR) eqc skip_deps=true
+
+proper: compile-for-proper
+	@echo "rebar does not implement a 'proper' command" && false
+
+triq: compile-for-triq
+	@$(REBAR) triq skip_deps=true
+
+compile-for-eunit:
+	@$(REBAR) compile eunit compile_only=true
+
+compile-for-eqc:
+	@$(REBAR) -D QC -D QC_EQC compile eqc compile_only=true
+
+compile-for-eqcmini:
+	@$(REBAR) -D QC -D QC_EQCMINI compile eqc compile_only=true
+
+compile-for-proper:
+	@$(REBAR) -D QC -D QC_PROPER compile eqc compile_only=true
+
+compile-for-triq:
+	@$(REBAR) -D QC -D QC_TRIQ compile triq compile_only=true
 
 plt: compile
 	@$(DIALYZER) --build_plt --output_plt .$(TARGET).plt -pa deps/lager/ebin --apps kernel stdlib
 
 analyze: compile
-	$(DIALYZER) --plt .$(TARGET).plt -pa deps/lager/ebin ebin
+	@$(DIALYZER) --plt .$(TARGET).plt -pa deps/lager/ebin ebin
 
 repl:
-	$(ERL) -pz deps/lager/ebin -pa ebin
-
-gdb-repl:
-	USE_GDB=1 $(ERL) -pz deps/lager/ebin -pa ebin
+	@$(ERL) -pa ebin -pz deps/lager/ebin
 
 eunit-repl:
-	$(ERL) -pz deps/lager/ebin -pa ebin -pa .eunit
-
-gdb-eunit-repl:
-	USE_GDB=1 $(ERL) -pa .eunit -pz deps/lager/ebin -pz ebin -exec 'cd(".eunit").'
-
+	@$(ERL) -pa .eunit deps/lager/ebin
 
 ERL_TOP=		/home/gburd/eng/otp_R15B01
 CERL=			${ERL_TOP}/bin/cerl

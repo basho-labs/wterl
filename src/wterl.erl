@@ -67,6 +67,8 @@
          fold_keys/3,
          fold/3]).
 
+-export([set_event_handler_pid/1]).
+
 -include("async_nif.hrl").
 
 -ifdef(TEST).
@@ -95,8 +97,7 @@ nif_stub_error(Line) ->
 -spec init() -> ok | {error, any()}.
 init() ->
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-                    [{wterl, "07061ed6e8252543c2f06b81a646eca6945cc558"},
-                     {wiredtiger, "6f7a4b961c744bfb21f0c21d4c28c2d162400f1b"}]).
+                    [{wterl_vsn, "a1459ce"}, {wiredtiger_vsn, "1.5.2-2-g8f2685b"}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -508,6 +509,11 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
     end.
 
 
+-spec set_event_handler_pid(pid()) -> ok.
+set_event_handler_pid(Pid)
+  when is_pid(Pid) ->
+    ?nif_stub.
+
 
 %% ===================================================================
 %% EUnit tests
@@ -862,7 +868,7 @@ prop_put_delete() ->
                      DataDir = "test/wterl.putdelete.qc",
                      Table = "table:eqc",
                      {ok, CWD} = file:get_cwd(),
-                     ?cmd("rm -rf "++DataDir),
+                     rmdir(filename:join([CWD, DataDir])), % ?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
                      ok = filelib:ensure_dir(filename:join([DataDir, "x"])),
                      {ok, ConnRef} = wterl:connection_open(DataDir, [{create,true}]),
                      try
