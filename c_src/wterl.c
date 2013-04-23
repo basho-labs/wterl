@@ -35,6 +35,10 @@
 #  define dprint(s, ...) {}
 #endif
 
+#ifndef __UNUSED
+#define __UNUSED(v) ((void)(v))
+#endif
+
 #include "wiredtiger.h"
 #include "async_nif.h"
 #include "khash.h"
@@ -89,6 +93,22 @@ static ERL_NIF_TERM ATOM_OK;
 static ERL_NIF_TERM ATOM_NOT_FOUND;
 static ERL_NIF_TERM ATOM_FIRST;
 static ERL_NIF_TERM ATOM_LAST;
+static ERL_NIF_TERM ATOM_MESSAGE;
+static ERL_NIF_TERM ATOM_PROGRESS;
+static ERL_NIF_TERM ATOM_WTERL_VSN;
+static ERL_NIF_TERM ATOM_WIREDTIGER_VSN;
+static ERL_NIF_TERM ATOM_MSG_PID;
+
+struct wterl_event_handlers {
+    WT_EVENT_HANDLER handlers;
+    ErlNifEnv *msg_env_error;
+    ErlNifMutex *error_mutex;
+    ErlNifEnv *msg_env_message;
+    ErlNifMutex *message_mutex;
+    ErlNifEnv *msg_env_progress;
+    ErlNifMutex *progress_mutex;
+    ErlNifPid to_pid;
+};
 
 /* Generators for 'conns' a named, type-specific hash table functions. */
 KHASH_MAP_INIT_PTR(conns, WterlConnHandle*);
@@ -97,11 +117,129 @@ struct wterl_priv_data {
     void *async_nif_priv; // Note: must be first element in struct
     ErlNifMutex *conns_mutex;
     khash_t(conns) *conns;
+    struct wterl_event_handlers eh;
+    char wterl_vsn[512];
+    char wiredtiger_vsn[512];
 };
 
 /* Global init for async_nif. */
 ASYNC_NIF_INIT(wterl);
 
+
+/**
+ * Callback to handle error messages.
+ *
+ * Deliver error messages into Erlang to be logged via loger:error()
+ * or on failure, write message to stderr.
+ *
+ * error    a WiredTiger, C99 or POSIX error code, which can
+ *          be converted to a string using wiredtiger_strerror()
+ * message  an error string
+ * ->       0 on success, a non-zero return may cause the WiredTiger
+ *          function posting the event to fail, and may even cause
+ *          operation or library failure.
+ */
+int
+__wterl_error_handler(WT_EVENT_HANDLER *handler, int error, const char *message)
+{
+    struct wterl_event_handlers *eh = (struct wterl_event_handlers *)handler;
+    ErlNifEnv *msg_env;
+    ErlNifPid *to_pid;
+    int rc = 0;
+
+    enif_mutex_lock(eh->error_mutex);
+    msg_env = eh->msg_env_error;
+    to_pid = &eh->to_pid;
+    if (msg_env) {
+        ERL_NIF_TERM msg =
+            enif_make_tuple2(msg_env, ATOM_ERROR,
+                 enif_make_tuple2(msg_env,
+                      enif_make_atom(msg_env, erl_errno_id(error)),
+                      enif_make_string(msg_env, message, ERL_NIF_LATIN1)));
+        enif_clear_env(msg_env);
+        if (!enif_send(NULL, to_pid, msg_env, msg))
+           fprintf(stderr, "[%d] %s\n", error, message);
+    } else {
+        rc = (fprintf(stderr, "[%d] %s\n", error, message) >= 0 ? 0 : EIO);
+    }
+    enif_mutex_unlock(eh->error_mutex);
+    return rc;
+}
+
+/**
+ * Callback to handle informational messages.
+ *
+ * Deliver informational messages into Erlang to be logged via loger:info()
+ * or on failure, write message to stdout.
+ *
+ * message  an informational string
+ * ->       0 on success, a non-zero return may cause the WiredTiger
+ *          function posting the event to fail, and may even cause
+ *          operation or library failure.
+ */
+int
+__wterl_message_handler(WT_EVENT_HANDLER *handler, const char *message)
+{
+    struct wterl_event_handlers *eh = (struct wterl_event_handlers *)handler;
+    ErlNifEnv *msg_env;
+    ErlNifPid *to_pid;
+    int rc = 0;
+
+    enif_mutex_lock(eh->message_mutex);
+    msg_env = eh->msg_env_message;
+    to_pid = &eh->to_pid;
+    if (msg_env) {
+        ERL_NIF_TERM msg =
+            enif_make_tuple2(msg_env, ATOM_MESSAGE,
+                 enif_make_string(msg_env, message, ERL_NIF_LATIN1));
+        enif_clear_env(msg_env);
+        if (!enif_send(NULL, to_pid, msg_env, msg))
+            fprintf(stderr, "%s\n", message);
+    } else {
+        rc = (printf("%s\n", message) >= 0 ? 0 : EIO);
+    }
+    enif_mutex_unlock(eh->message_mutex);
+    return rc;
+}
+
+/**
+ * Callback to handle progress messages.
+ *
+ * Deliver progress messages into Erlang to be logged via loger:info()
+ * or on failure, written message to stdout.
+ *
+ * operation    a string representation of the operation
+ * counter      a progress counter [0..100]
+ * ->       0 on success, a non-zero return may cause the WiredTiger
+ *          function posting the event to fail, and may even cause
+ *          operation or library failure.
+ */
+int
+__wterl_progress_handler(WT_EVENT_HANDLER *handler, const char *operation, uint64_t counter)
+{
+    struct wterl_event_handlers *eh = (struct wterl_event_handlers *)handler;
+    ErlNifEnv *msg_env;
+    ErlNifPid *to_pid;
+    int rc = 0;
+
+    enif_mutex_lock(eh->progress_mutex);
+    msg_env = eh->msg_env_progress;
+    to_pid = &eh->to_pid;
+    if (msg_env) {
+        ERL_NIF_TERM msg =
+            enif_make_tuple2(msg_env, ATOM_PROGRESS,
+                 enif_make_tuple2(msg_env,
+                      enif_make_string(msg_env, operation, ERL_NIF_LATIN1),
+                      enif_make_int64(msg_env, counter)));
+        enif_clear_env(msg_env);
+        if (!enif_send(NULL, to_pid, msg_env, msg))
+            fprintf(stderr, "[%ld] %s\n", counter, operation);
+    } else {
+        rc = (printf("[%ld] %s\n", counter, operation) >= 0 ? 0 : EIO);
+    }
+    enif_mutex_unlock(eh->progress_mutex);
+    return rc;
+}
 
 /**
  * Open a WT_SESSION for the thread context 'ctx' to use, also init the
@@ -119,7 +257,13 @@ __init_session_and_cursor_cache(WterlConnHandle *conn_handle, WterlCtx *ctx)
         ctx->session = NULL;
         return rc;
     }
+
     ctx->cursors = kh_init(cursors);
+    if (!ctx->cursors) {
+        ctx->session->close(ctx->session, NULL);
+        ctx->session = NULL;
+        return ENOMEM;
+    }
 
     return 0;
 }
@@ -256,6 +400,9 @@ __retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char
 static void
 __release_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char *uri, WT_CURSOR *cursor)
 {
+    __UNUSED(conn_handle);
+    __UNUSED(worker_id);
+    __UNUSED(uri);
     cursor->reset(cursor);
 }
 
@@ -327,7 +474,11 @@ ASYNC_NIF_DECL(
         ASYNC_NIF_REPLY(enif_make_badarg(env));
         return;
     }
-    int rc = wiredtiger_open(args->homedir, NULL, config.data[0] != 0 ? (const char*)config.data : NULL, &conn);
+
+    int rc = wiredtiger_open(args->homedir,
+                             (WT_EVENT_HANDLER*)&args->priv->eh.handlers,
+                             config.data[0] != 0 ? (const char*)config.data : NULL,
+                             &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
       if (!conn_handle) {
@@ -847,14 +998,6 @@ ASYNC_NIF_DECL(
         item_start.data = start_key.data;
         item_start.size = start_key.size;
         start->set_key(start, item_start);
-        rc = start->search(start);
-        if (rc != 0) {
-            start->close(start);
-            session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->contexts_mutex);
-            ASYNC_NIF_REPLY(__strerror_term(env, rc));
-            return;
-        }
     }
 
     if (!args->to_last) {
@@ -890,15 +1033,6 @@ ASYNC_NIF_DECL(
         item_stop.data = stop_key.data;
         item_stop.size = stop_key.size;
         stop->set_key(stop, item_stop);
-        rc = stop->search(stop);
-        if (rc != 0) {
-            start->close(start);
-            stop->close(stop);
-            session->close(session, NULL);
-            enif_mutex_unlock(args->conn_handle->contexts_mutex);
-            ASYNC_NIF_REPLY(__strerror_term(env, rc));
-            return;
-        }
     }
 
     /* Always pass NULL for URI here because we always specify the range with the
@@ -1889,6 +2023,37 @@ ASYNC_NIF_DECL(
     enif_release_resource((void*)args->cursor_handle);
   });
 
+
+/**
+ * Called by wterl_event_handler to set the pid for message delivery.
+ */
+static ERL_NIF_TERM
+wterl_set_event_handler_pid(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  struct wterl_priv_data *priv = enif_priv_data(env);
+  struct wterl_event_handlers *eh = &priv->eh;
+
+  if (!(argc == 1 && enif_is_pid(env, argv[0]))) {
+      return enif_make_badarg(env);
+  }
+  if (enif_get_local_pid(env, argv[0], &eh->to_pid)) {
+    if (!eh->msg_env_message)
+      eh->msg_env_message = enif_alloc_env(); // TOOD: if (!eh->msg_env) { return ENOMEM; }
+    if (!eh->msg_env_error)
+      eh->msg_env_error = enif_alloc_env();
+    if (!eh->msg_env_progress)
+      eh->msg_env_progress = enif_alloc_env();
+
+    eh->handlers.handle_error = __wterl_error_handler;
+    eh->handlers.handle_message = __wterl_message_handler;
+    eh->handlers.handle_progress = __wterl_progress_handler;
+  } else {
+    memset(&eh->to_pid, 0, sizeof(ErlNifPid));
+  }
+  return ATOM_OK;
+}
+
+
 /**
  * Called as this driver is loaded by the Erlang BEAM runtime triggered by the
  * module's on_load directive.
@@ -1903,6 +2068,9 @@ ASYNC_NIF_DECL(
 static int
 on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 {
+    int arity;
+    ERL_NIF_TERM head, tail;
+    const ERL_NIF_TERM* option;
     ErlNifResourceFlags flags = ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER;
     wterl_conn_RESOURCE = enif_open_resource_type(env, NULL, "wterl_conn_resource",
                                                   NULL, flags, NULL);
@@ -1914,25 +2082,69 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     ATOM_NOT_FOUND = enif_make_atom(env, "not_found");
     ATOM_FIRST = enif_make_atom(env, "first");
     ATOM_LAST = enif_make_atom(env, "last");
+    ATOM_MESSAGE = enif_make_atom(env, "message");
+    ATOM_PROGRESS = enif_make_atom(env, "progress");
+    ATOM_WTERL_VSN = enif_make_atom(env, "wterl_vsn");
+    ATOM_WIREDTIGER_VSN = enif_make_atom(env, "wiredtiger_vsn");
+    ATOM_MSG_PID = enif_make_atom(env, "message_pid");
 
     struct wterl_priv_data *priv = enif_alloc(sizeof(struct wterl_priv_data));
     if (!priv)
         return ENOMEM;
     memset(priv, 0, sizeof(struct wterl_priv_data));
 
+    priv->conns_mutex = enif_mutex_create(NULL);
+    priv->conns = kh_init(conns);
+    if (!priv->conns) {
+        enif_mutex_destroy(priv->conns_mutex);
+        enif_free(priv);
+        return ENOMEM;
+    }
+
+    struct wterl_event_handlers *eh = &priv->eh;
+    eh->error_mutex = enif_mutex_create(NULL);
+    eh->message_mutex = enif_mutex_create(NULL);
+    eh->progress_mutex = enif_mutex_create(NULL);
+
+    /* Process the load_info array of tuples, we expect:
+       [{wterl_vsn, "a version string"},
+        {wiredtiger_vsn, "a version string"}]. */
+    while (enif_get_list_cell(env, load_info, &head, &tail)) {
+      if (enif_get_tuple(env, head, &arity, &option)) {
+        if (arity == 2) {
+          if (enif_is_identical(option[0], ATOM_WTERL_VSN)) {
+            enif_get_string(env, option[1], priv->wterl_vsn, sizeof(priv->wterl_vsn), ERL_NIF_LATIN1);
+          } else if (enif_is_identical(option[0], ATOM_WIREDTIGER_VSN)) {
+            enif_get_string(env, option[1], priv->wiredtiger_vsn, sizeof(priv->wiredtiger_vsn), ERL_NIF_LATIN1);
+          }
+        }
+      }
+      load_info = tail;
+    }
+
     /* Note: !!! the first element of our priv_data struct *must* be the
        pointer to the async_nif's private data which we set here. */
     ASYNC_NIF_LOAD(wterl, priv->async_nif_priv);
-
-    priv->conns_mutex = enif_mutex_create(NULL);
-    priv->conns = kh_init(conns);
+    if (!priv->async_nif_priv) {
+        kh_destroy(conns, priv->conns);
+        enif_mutex_destroy(priv->conns_mutex);
+        enif_free(priv);
+        return ENOMEM;
+    }
     *priv_data = priv;
-    return *priv_data ? 0 : ENOMEM;
+
+    char msg[1024];
+    snprintf(msg, 1024, "NIF on_load complete (wterl version: %s, wiredtiger version: %s)", priv->wterl_vsn, priv->wiredtiger_vsn);
+    __wterl_message_handler((WT_EVENT_HANDLER *)&priv->eh, msg);
+    return 0;
 }
 
 static int
 on_reload(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 {
+    __UNUSED(env);
+    __UNUSED(priv_data);
+    __UNUSED(load_info);
     return 0; // TODO: implement
 }
 
@@ -1996,6 +2208,20 @@ on_unload(ErlNifEnv *env, void *priv_data)
       }
     }
 
+    /* At this point all WiredTiger state and threads are free'd/stopped so there
+       is no chance that the event handler functions will be called so we can
+       be sure that there won't be a race on eh.msg_env in the callback functions. */
+    struct wterl_event_handlers *eh = &priv->eh;
+    enif_mutex_destroy(eh->error_mutex);
+    enif_mutex_destroy(eh->message_mutex);
+    enif_mutex_destroy(eh->progress_mutex);
+    if (eh->msg_env_message)
+        enif_free_env(eh->msg_env_message);
+    if (eh->msg_env_error)
+        enif_free_env(eh->msg_env_error);
+    if (eh->msg_env_progress)
+        enif_free_env(eh->msg_env_progress);
+
     kh_destroy(conns, h);
     enif_mutex_unlock(priv->conns_mutex);
     enif_mutex_destroy(priv->conns_mutex);
@@ -2005,6 +2231,9 @@ on_unload(ErlNifEnv *env, void *priv_data)
 static int
 on_upgrade(ErlNifEnv *env, void **priv_data, void **old_priv_data, ERL_NIF_TERM load_info)
 {
+    __UNUSED(priv_data);
+    __UNUSED(old_priv_data);
+    __UNUSED(load_info);
     ASYNC_NIF_UPGRADE(wterl, env); // TODO: implement
     return 0;
 }
@@ -2041,6 +2270,7 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_search_near_nif", 4, wterl_cursor_search_near},
     {"cursor_search_nif", 4, wterl_cursor_search},
     {"cursor_update_nif", 4, wterl_cursor_update},
+    {"set_event_handler_pid", 1, wterl_set_event_handler_pid},
 };
 
 ERL_NIF_INIT(wterl, nif_funcs, &on_load, &on_reload, &on_upgrade, &on_unload);

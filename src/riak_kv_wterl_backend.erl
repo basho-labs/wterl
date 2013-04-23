@@ -416,10 +416,14 @@ establish_connection(Config, Type) ->
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
-                    wterl:config_value(verbose, Config, [
-                         %"ckpt" "block", "shared_cache", "evictserver", "fileops",
-                         %"hazard", "mutex", "read", "readserver", "reconcile",
-                         %"salvage", "verify", "write", "evict", "lsm"
+                    wterl:config_value(verbose, Config, [ "salvage", "verify"
+                         % Note: for some unknown reason, if you add these additional
+                         % verbose flags Erlang SEGV's "size_object: bad tag for 0x80"
+                         % no idea why... yet... you've been warned.
+
+                         %"block", "shared_cache", "reconcile", "evict", "lsm",
+                         %"fileops", "read", "write", "readserver", "evictserver",
+                         %"hazard", "mutex", "ckpt"
                          ]) ] ++ CheckpointSetting ++ proplists:get_value(wterl, Config, [])), % sec
 
 

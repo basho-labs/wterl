@@ -28,7 +28,7 @@ export BASEDIR="$PWD"
 which gmake 1>/dev/null 2>/dev/null && MAKE=gmake
 MAKE=${MAKE:-make}
 
-export CFLAGS="$CFLAGS -g -I $BASEDIR/system/include"
+export CFLAGS="$CFLAGS -I $BASEDIR/system/include"
 export CXXFLAGS="$CXXFLAGS -I $BASEDIR/system/include"
 export LDFLAGS="$LDFLAGS -L$BASEDIR/system/lib"
 export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$BASEDIR/system/lib:$LD_LIBRARY_PATH"
