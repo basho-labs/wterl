@@ -426,8 +426,6 @@ establish_connection(Config, Type) ->
                          %"hazard", "mutex", "ckpt"
                          ]) ] ++ CheckpointSetting ++ proplists:get_value(wterl, Config, [])), % sec
 
-
-
             %% WT Session Options:
             SessionOpts = [{isolation, "snapshot"}],
 
