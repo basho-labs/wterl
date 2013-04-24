@@ -51,7 +51,7 @@ static ErlNifResourceType *wterl_conn_RESOURCE;
 static ErlNifResourceType *wterl_cursor_RESOURCE;
 
 /* Generators for 'cursors' a named, type-specific hash table functions. */
-KHASH_MAP_INIT_STR(cursors, WT_CURSOR*);
+KHASH_INIT(cursors, ERL_NIF_TERM, WT_CURSOR*, 1, kh_int_hash_func, enif_is_identical);
 
 /**
  * We will have exactly one (1) WterlCtx for each async worker thread.  As
@@ -305,11 +305,9 @@ __close_all_sessions(WterlConnHandle *conn_handle)
             for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
                 if (kh_exist(h, itr)) {
                     WT_CURSOR *cursor = kh_val(h, itr);
-                    char *key = (char *)kh_key(h, itr);
                     cursor->close(cursor);
-                    kh_del(cursors, h, itr);
-                    enif_free(key);
                     kh_value(h, itr) = NULL;
+                    kh_del(cursors, h, itr);
                 }
             }
             kh_destroy(cursors, h);
@@ -325,7 +323,7 @@ __close_all_sessions(WterlConnHandle *conn_handle)
  * Note: always call within enif_mutex_lock/unlock(conn_handle->contexts_mutex)
  */
 void
-__close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
+__close_cursors_on(WterlConnHandle *conn_handle, ERL_NIF_TERM key)
 {
     int i;
 
@@ -333,14 +331,12 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
         WterlCtx *ctx = &conn_handle->contexts[i];
         if (ctx->session != NULL) {
             khash_t(cursors) *h = ctx->cursors;
-            khiter_t itr = kh_get(cursors, h, (char *)uri);
+            khiter_t itr = kh_get(cursors, h, key);
             if (itr != kh_end(h)) {
                 WT_CURSOR *cursor = kh_value(h, itr);
-                char *key = (char *)kh_key(h, itr);
                 cursor->close(cursor);
-                kh_del(cursors, h, itr);
-                enif_free(key);
                 kh_value(h, itr) = NULL;
+                kh_del(cursors, h, itr);
             }
         }
     }
@@ -368,7 +364,7 @@ __retain_cursor(WterlConnHandle *conn_handle, unsigned int worker_id, const char
     }
 
     h = ctx->cursors;
-    itr = kh_get(cursors, h, (char *)uri);
+    itr = kh_get(cursors, h, key);
     if (itr != kh_end(h)) {
         // key exists in hash table, retrieve it
         *cursor = (WT_CURSOR*)kh_value(h, itr);
@@ -570,8 +566,8 @@ ASYNC_NIF_DECL(
     itr = kh_get(conns, h, conn);
     if (itr != kh_end(h)) {
         /* key exists in table (as expected) delete it */
-        kh_del(conns, h, itr);
         kh_value(h, itr) = NULL;
+        kh_del(conns, h, itr);
     }
     enif_mutex_unlock(args->priv->conns_mutex);
     enif_mutex_unlock(args->conn_handle->contexts_mutex);
@@ -2175,11 +2171,9 @@ on_unload(ErlNifEnv *env, void *priv_data)
               for (itr_cursors = kh_begin(h); itr_cursors != kh_end(h); ++itr_cursors) {
                 if (kh_exist(h, itr_cursors)) {
                   WT_CURSOR *cursor = kh_val(h, itr_cursors);
-                  char *key = (char *)kh_key(h, itr_cursors);
                   cursor->close(cursor);
-                  kh_del(cursors, h, itr_cursors);
-                  enif_free(key);
                   kh_value(h, itr_cursors) = NULL;
+                  kh_del(cursors, h, itr_cursors);
                 }
               }
               kh_destroy(cursors, h);

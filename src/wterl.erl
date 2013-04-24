@@ -134,71 +134,71 @@ connection_close(ConnRef) ->
 conn_close_nif(_AsyncRef, _ConnRef) ->
     ?nif_stub.
 
--spec create(connection(), string()) -> ok | {error, term()}.
--spec create(connection(), string(), config_list()) -> ok | {error, term()}.
+-spec create(connection(), atom()) -> ok | {error, term()}.
+-spec create(connection(), atom(), config_list()) -> ok | {error, term()}.
 create(Ref, Name) ->
     create(Ref, Name, []).
 create(Ref, Name, Config) ->
     ?ASYNC_NIF_CALL(fun create_nif/4, [Ref, Name, config_to_bin(Config)]).
 
--spec create_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+-spec create_nif(reference(), connection(), atom(), config()) -> ok | {error, term()}.
 create_nif(_AsyncNif, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec drop(connection(), string()) -> ok | {error, term()}.
--spec drop(connection(), string(), config_list()) -> ok | {error, term()}.
+-spec drop(connection(), atom()) -> ok | {error, term()}.
+-spec drop(connection(), atom(), config_list()) -> ok | {error, term()}.
 drop(Ref, Name) ->
     drop(Ref, Name, [{force, true}]).
 drop(Ref, Name, Config) ->
     ?ASYNC_NIF_CALL(fun drop_nif/4, [Ref, Name, config_to_bin(Config)]).
 
--spec drop_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+-spec drop_nif(reference(), connection(), atom(), config()) -> ok | {error, term()}.
 drop_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec delete(connection(), string(), key()) -> ok | {error, term()}.
+-spec delete(connection(), atom(), key()) -> ok | {error, term()}.
 delete(Ref, Table, Key) ->
     ?ASYNC_NIF_CALL(fun delete_nif/4, [Ref, Table, Key]).
 
--spec delete_nif(reference(), connection(), string(), key()) -> ok | {error, term()}.
+-spec delete_nif(reference(), connection(), atom(), key()) -> ok | {error, term()}.
 delete_nif(_AsyncRef, _Ref, _Table, _Key) ->
     ?nif_stub.
 
--spec get(connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
+-spec get(connection(), atom(), key()) -> {ok, value()} | not_found | {error, term()}.
 get(Ref, Table, Key) ->
     ?ASYNC_NIF_CALL(fun get_nif/4, [Ref, Table, Key]).
 
--spec get_nif(reference(), connection(), string(), key()) -> {ok, value()} | not_found | {error, term()}.
+-spec get_nif(reference(), connection(), atom(), key()) -> {ok, value()} | not_found | {error, term()}.
 get_nif(_AsyncRef, _Ref, _Table, _Key) ->
     ?nif_stub.
 
--spec put(connection(), string(), key(), value()) -> ok | {error, term()}.
+-spec put(connection(), atom(), key(), value()) -> ok | {error, term()}.
 put(Ref, Table, Key, Value) ->
     ?ASYNC_NIF_CALL(fun put_nif/5, [Ref, Table, Key, Value]).
 
--spec put_nif(reference(), connection(), string(), key(), value()) -> ok | {error, term()}.
+-spec put_nif(reference(), connection(), atom(), key(), value()) -> ok | {error, term()}.
 put_nif(_AsyncRef, _Ref, _Table, _Key, _Value) ->
     ?nif_stub.
 
--spec rename(connection(), string(), string()) -> ok | {error, term()}.
--spec rename(connection(), string(), string(), config_list()) -> ok | {error, term()}.
+-spec rename(connection(), atom(), string()) -> ok | {error, term()}.
+-spec rename(connection(), atom(), string(), config_list()) -> ok | {error, term()}.
 rename(Ref, OldName, NewName) ->
     rename(Ref, OldName, NewName, []).
 rename(Ref, OldName, NewName, Config) ->
     ?ASYNC_NIF_CALL(fun rename_nif/5, [Ref, OldName, NewName, config_to_bin(Config)]).
 
--spec rename_nif(reference(), connection(), string(), string(), config()) -> ok | {error, term()}.
+-spec rename_nif(reference(), connection(), atom(), string(), config()) -> ok | {error, term()}.
 rename_nif(_AsyncRef, _Ref, _OldName, _NewName, _Config) ->
     ?nif_stub.
 
--spec salvage(connection(), string()) -> ok | {error, term()}.
--spec salvage(connection(), string(), config_list()) -> ok | {error, term()}.
+-spec salvage(connection(), atom()) -> ok | {error, term()}.
+-spec salvage(connection(), atom(), config_list()) -> ok | {error, term()}.
 salvage(Ref, Name) ->
     salvage(Ref, Name, []).
 salvage(Ref, Name, Config) ->
     ?ASYNC_NIF_CALL(fun salvage_nif/4, [Ref, Name, config_to_bin(Config)]).
 
--spec salvage_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+-spec salvage_nif(reference(), connection(), atom(), config()) -> ok | {error, term()}.
 salvage_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
@@ -213,10 +213,10 @@ checkpoint(Ref, Config) ->
 checkpoint_nif(_AsyncRef, _Ref, _Config) ->
     ?nif_stub.
 
--spec truncate(connection(), string()) -> ok | {error, term()}.
--spec truncate(connection(), string(), config_list()) -> ok | {error, term()}.
--spec truncate(connection(), string(), binary() | first, binary() | last) -> ok | {error, term()}.
--spec truncate(connection(), string(), binary() | first, binary() | last, config()) -> ok | {error, term()}.
+-spec truncate(connection(), atom()) -> ok | {error, term()}.
+-spec truncate(connection(), atom(), config_list()) -> ok | {error, term()}.
+-spec truncate(connection(), atom(), binary() | first, binary() | last) -> ok | {error, term()}.
+-spec truncate(connection(), atom(), binary() | first, binary() | last, config()) -> ok | {error, term()}.
 truncate(Ref, Name) ->
     truncate(Ref, Name, first, last, []).
 truncate(Ref, Name, Config) ->
@@ -226,40 +226,40 @@ truncate(Ref, Name, Start, Stop) ->
 truncate(Ref, Name, Start, Stop, Config) ->
     ?ASYNC_NIF_CALL(fun truncate_nif/6, [Ref, Name, Start, Stop, config_to_bin(Config)]).
 
--spec truncate_nif(reference(), connection(), string(), cursor() | first, cursor() | last, config()) -> ok | {error, term()}.
+-spec truncate_nif(reference(), connection(), atom(), cursor() | first, cursor() | last, config()) -> ok | {error, term()}.
 truncate_nif(_AsyncRef, _Ref, _Name, _Start, _Stop, _Config) ->
     ?nif_stub.
 
--spec upgrade(connection(), string()) -> ok | {error, term()}.
--spec upgrade(connection(), string(), config_list()) -> ok | {error, term()}.
+-spec upgrade(connection(), atom()) -> ok | {error, term()}.
+-spec upgrade(connection(), atom(), config_list()) -> ok | {error, term()}.
 upgrade(Ref, Name) ->
     upgrade(Ref, Name, []).
 upgrade(Ref, Name, Config) ->
     ?ASYNC_NIF_CALL(fun upgrade_nif/4, [Ref, Name, config_to_bin(Config)]).
 
--spec upgrade_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+-spec upgrade_nif(reference(), connection(), atom(), config()) -> ok | {error, term()}.
 upgrade_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec verify(connection(), string()) -> ok | {error, term()}.
--spec verify(connection(), string(), config_list()) -> ok | {error, term()}.
+-spec verify(connection(), atom()) -> ok | {error, term()}.
+-spec verify(connection(), atom(), config_list()) -> ok | {error, term()}.
 verify(Ref, Name) ->
     verify(Ref, Name, []).
 verify(Ref, Name, Config) ->
     ?ASYNC_NIF_CALL(fun verify_nif/4, [Ref, Name, config_to_bin(Config)]).
 
--spec verify_nif(reference(), connection(), string(), config()) -> ok | {error, term()}.
+-spec verify_nif(reference(), connection(), atom(), config()) -> ok | {error, term()}.
 verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
     ?nif_stub.
 
--spec cursor_open(connection(), string()) -> {ok, cursor()} | {error, term()}.
--spec cursor_open(connection(), string(), config_list()) -> {ok, cursor()} | {error, term()}.
+-spec cursor_open(connection(), atom()) -> {ok, cursor()} | {error, term()}.
+-spec cursor_open(connection(), atom(), config_list()) -> {ok, cursor()} | {error, term()}.
 cursor_open(Ref, Table) ->
     cursor_open(Ref, Table, []).
 cursor_open(Ref, Table, Config) ->
     ?ASYNC_NIF_CALL(fun cursor_open_nif/4, [Ref, Table, config_to_bin(Config)]).
 
--spec cursor_open_nif(reference(), connection(), string(), config()) -> {ok, cursor()} | {error, term()}.
+-spec cursor_open_nif(reference(), connection(), atom(), config()) -> {ok, cursor()} | {error, term()}.
 cursor_open_nif(_AsyncRef, _Ref, _Table, _Config) ->
     ?nif_stub.
 

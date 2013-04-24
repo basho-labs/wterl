@@ -50,7 +50,7 @@
 %%-define(CAPABILITIES, [async_fold, indexes]).
 -define(CAPABILITIES, [async_fold]).
 
--record(state, {table :: string(),
+-record(state, {table :: atom(), % Atoms aka int's are easier to hash
                 type :: string(),
                 connection :: wterl:connection(),
                 is_empty_cursor :: wterl:cursor(),
@@ -107,7 +107,7 @@ start(Partition, Config) ->
                         "lsm"
                 end,
             {ok, Connection} = establish_connection(Config, Type),
-            Table = Type ++ ":" ++ integer_to_list(Partition),
+            TableUri = Type ++ ":" ++ integer_to_list(Partition),
             Compressor =
                 case wterl:config_value(block_compressor, Config, "snappy") of
                     {block_compressor, "snappy"}=C -> [C];
@@ -133,7 +133,8 @@ start(Partition, Config) ->
                     "table" ->
                         Compressor
                 end,
-            case wterl:create(Connection, Table, TableOpts) of
+            Table = list_to_atom(TableUri),
+            case wterl:create(Connection, TableUri, TableOpts) of
                 ok ->
                     case establish_utility_cursors(Connection, Table) of
                         {ok, IsEmptyCursor, StatusCursor} ->
