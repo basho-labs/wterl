@@ -96,7 +96,7 @@ struct async_nif_state {
     new_env = req->env;                                                 \
     if (!req)                                                           \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
-                              enif_make_atom(env, "enomem"));           \
+                              enif_make_atom(env, "eagain"));           \
     do pre_block while(0);                                              \
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \

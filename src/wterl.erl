@@ -69,8 +69,6 @@
 
 -export([set_event_handler_pid/1]).
 
--include("async_nif.hrl").
-
 -ifdef(TEST).
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
@@ -90,6 +88,7 @@
 
 -on_load(init/0).
 
+-include("async_nif.hrl").
 -define(nif_stub, nif_stub_error(?LINE)).
 nif_stub_error(Line) ->
     erlang:nif_error({nif_not_loaded,module,?MODULE,line,Line}).
