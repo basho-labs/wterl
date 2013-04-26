@@ -11,7 +11,7 @@ unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as w
 set -e
 
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
-WT_BRANCH=basho
+WT_BRANCH=develop
 WT_VSN=""
 WT_DIR=wiredtiger-$WT_BRANCH
 
@@ -48,7 +48,6 @@ get_wt ()
         mv wiredtiger $WT_DIR || exit 1
     fi
     [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
-    (cd $BASEDIR/$WT_DIR && git cherry-pick a3c8c2a13758ae9c44edabcc1a780984a7882904 || exit 1)
     (cd $BASEDIR/$WT_DIR
         [ -e $BASEDIR/wiredtiger-build.patch ] && \
             (patch -p1 --forward < $BASEDIR/wiredtiger-build.patch || exit 1 )
