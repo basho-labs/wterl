@@ -39,7 +39,7 @@ get_wt ()
             git clone ${WT_REPO} && \
                 (cd $BASEDIR/wiredtiger && git checkout $WT_VSN || exit 1)
         else
-            git clone -b ${WT_BRANCH} --single-branch ${WT_REPO} && \
+            git clone -b ${WT_BRANCH} ${WT_REPO} && \
                 (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)
         fi
         mv wiredtiger $WT_DIR || exit 1
@@ -51,10 +51,16 @@ get_wt ()
         ./autogen.sh || exit 1
         cd ./build_posix || exit 1
         [ -e Makefile ] && $MAKE distclean
+        wt_configure;
+    )
+}
+
+wt_configure ()
+{
+    (cd $BASEDIR/$WT_DIR/build_posix
         ../configure --with-pic \
                      --enable-snappy \
-                     --prefix=${BASEDIR}/system || exit 1
-    )
+                     --prefix=${BASEDIR}/system || exit 1)
 }
 
 get_snappy ()
@@ -89,8 +95,8 @@ update_deps ()
 
 build_wt ()
 {
-    (cd $BASEDIR/$WT_DIR/build_posix && \
-        $MAKE -j && $MAKE install)
+    wt_configure;
+    (cd $BASEDIR/$WT_DIR/build_posix && $MAKE -j && $MAKE install)
 }
 
 build_snappy ()
@@ -103,9 +109,8 @@ build_snappy ()
 
 case "$1" in
     clean)
-        [ -d $WT_DIR/build_posix ] && \
-            rm -rf $WT_DIR/build_posix && mkdir $WT_DIR/build_posix
-        rm -rf system $WT_DIR $SNAPPY_DIR
+        [ -d $WT_DIR/build_posix ] && (cd $WT_DIR/build_posix; make distclean)
+        rm -rf system $SNAPPY_DIR
         rm -f ${BASEDIR}/../priv/wt
         rm -f ${BASEDIR}/../priv/libwiredtiger-*.so
         rm -f ${BASEDIR}/../priv/libwiredtiger_*.so
