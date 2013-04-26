@@ -18,9 +18,6 @@ WT_DIR=wiredtiger-$WT_BRANCH
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
 
-BZIP2_VSN="1.0.6"
-BZIP2_DIR=bzip2-$BZIP2_VSN
-
 [ `basename $PWD` != "c_src" ] && cd c_src
 
 export BASEDIR="$PWD"
@@ -56,7 +53,6 @@ get_wt ()
         [ -e Makefile ] && $MAKE distclean
         ../configure --with-pic \
                      --enable-snappy \
-                     --enable-bzip2 \
                      --prefix=${BASEDIR}/system || exit 1
     )
 }
@@ -72,20 +68,10 @@ get_snappy ()
         ./configure --with-pic --prefix=$BASEDIR/system || exit 1)
 }
 
-get_bzip2 ()
-{
-    [ -e bzip2-$BZIP2_VSN.tar.gz  ] || (echo "Missing bzip2 ($BZIP2_VSN) source package" && exit 1)
-    [ -d $BASEDIR/$BZIP2_DIR ] || tar -xzf bzip2-$BZIP2_VSN.tar.gz
-    [ -e $BASEDIR/bzip2-build.patch ] && \
-        (cd $BASEDIR/$BZIP2_DIR
-        patch -p1 --forward < $BASEDIR/bzip2-build.patch || exit 1)
-}
-
 get_deps ()
 {
     get_wt;
     get_snappy;
-    get_bzip2;
 }
 
 update_deps ()
@@ -115,26 +101,14 @@ build_snappy ()
     )
 }
 
-build_bzip2 ()
-{
-    (cd $BASEDIR/$BZIP2_DIR && \
-        $MAKE -j -f Makefile-libbz2_so && \
-        mkdir -p $BASEDIR/system/lib && \
-        cp -f bzlib.h $BASEDIR/system/include && \
-        cp -f libbz2.so.1.0.6 $BASEDIR/system/lib && \
-        ln -s $BASEDIR/system/lib/libbz2.so.1.0.6 $BASEDIR/system/lib/libbz2.so && \
-        ln -s $BASEDIR/system/lib/libbz2.so.1.0.6 $BASEDIR/system/lib/libbz2-1.so && \
-        ln -s $BASEDIR/system/lib/libbz2.so.1.0.6 $BASEDIR/system/lib/libbz2-1.0.so
-    )
-}
-
 case "$1" in
     clean)
-        rm -rf system $WT_DIR $SNAPPY_DIR $BZIP2_DIR
+        [ -d $WT_DIR/build_posix ] && \
+            rm -rf $WT_DIR/build_posix && mkdir $WT_DIR/build_posix
+        rm -rf system $WT_DIR $SNAPPY_DIR
         rm -f ${BASEDIR}/../priv/wt
         rm -f ${BASEDIR}/../priv/libwiredtiger-*.so
         rm -f ${BASEDIR}/../priv/libwiredtiger_*.so
-        rm -f ${BASEDIR}/../priv/libbz2.so.*
         rm -f ${BASEDIR}/../priv/libsnappy.so.*
         ;;
 
@@ -153,32 +127,20 @@ case "$1" in
     *)
         [ -d $WT_DIR ] || get_wt;
         [ -d $SNAPPY_DIR ] || get_snappy;
-        [ -d $BZIP2_DIR ] || get_bzip2;
 
         # Build Snappy
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
         test -f $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
 
-        # Build BZIP2
-        [ -d $BASEDIR/$BZIP2_DIR ] || (echo "Missing BZip2 source directory" && exit 1)
-        test -f $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] || build_bzip2;
-
         # Build WiredTiger
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
         test -f $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
-             -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so \
-             -a -f $BASEDIR/system/lib/libwiredtiger_bzip2.so.[0-9].[0-9].[0-9] || build_wt;
+             -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so.[0-9].[0-9].[0-9] || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/bin/wt ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libwiredtiger_snappy.so ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libwiredtiger_bzip2.so* ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libbz2.so.[0-9].[0-9].[0-9] ${BASEDIR}/../priv
-        (cd ${BASEDIR}/../priv
-            [ -L libbz2.so ] || ln -s libbz2.so.1.0.6 libbz2.so
-            [ -L libbz2.so.1 ] || ln -s libbz2.so.1.0.6 libbz2.so.1
-            [ -L libbz2.so.1.0 ] || ln -s libbz2.so.1.0.6 libbz2.so.1.0)
+        cp -p -P $BASEDIR/system/lib/libwiredtiger_snappy.so* ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libsnappy.so* ${BASEDIR}/../priv
         ;;
 esac

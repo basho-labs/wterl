@@ -571,12 +571,6 @@ conn_test_() ->
                         ConnRef = open_test_table(ConnRef, "table", [{block_compressor, "snappy"}]),
                         ?assertMatch(ok, verify(ConnRef, "table:test")),
                         ?assertMatch(ok, drop(ConnRef, "table:test"))
-                end},
-               {"create, verify, drop a table(btree, bzip2)",
-                fun() ->
-                        ConnRef = open_test_table(ConnRef, "table", [{block_compressor, "bzip2"}]),
-                        ?assertMatch(ok, verify(ConnRef, "table:test")),
-                        ?assertMatch(ok, drop(ConnRef, "table:test"))
                 end}
               ]}
      end}.

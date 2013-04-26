@@ -111,7 +111,6 @@ start(Partition, Config) ->
             Compressor =
                 case wterl:config_value(block_compressor, Config, "snappy") of
                     {block_compressor, "snappy"}=C -> [C];
-                    {block_compressor, "bzip2"}=C -> [C];
                     {block_compressor, "none"} -> [];
                     {block_compressor, none} -> [];
                     {block_compressor, _} -> [{block_compressor, "snappy"}];
