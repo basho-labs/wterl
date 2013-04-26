@@ -36,7 +36,7 @@ extern "C" {
 #define __UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 1024
+#define ASYNC_NIF_MAX_WORKERS 128
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 #define ASYNC_NIF_MAX_QUEUED_REQS 1000 * ASYNC_NIF_MAX_WORKERS
 
@@ -431,7 +431,7 @@ async_nif_load()
          sizeof(struct async_nif_work_queue) * num_queues);
 
   async_nif->num_queues = num_queues;
-  async_nif->num_workers = ASYNC_NIF_MAX_WORKERS; // TODO: start with 2 per queue, then grow if needed
+  async_nif->num_workers = 2 * num_queues;
   async_nif->next_q = 0;
   async_nif->shutdown = 0;
   async_nif->recycled_reqs = fifo_q_new(reqs, ASYNC_NIF_MAX_QUEUED_REQS);
