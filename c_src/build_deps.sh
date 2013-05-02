@@ -140,7 +140,7 @@ case "$1" in
         # Build WiredTiger
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
         test -f $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
-             -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so.[0-9].[0-9].[0-9] || build_wt;
+             -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so || build_wt;
 
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/bin/wt ${BASEDIR}/../priv
