@@ -15,6 +15,10 @@ TODO:
   * Why do we see {error, {ebusy, _}} result on wterl:drop/2?
   * Determine a better way to estimate the number of sessions we should
     configure WT for at startup in riak_kv_wterl_backend:max_sessions/1.
+* Make sure Erlang is optimizing for selective receive in async_nif_enqueue/3
+  because in the eLevelDB driver there is a comment: "This cannot be a separate
+  function. Code must be inline to trigger Erlang compiler's use of optimized
+  selective receive."
 * Provide a way to configure the cursor options, right now they are
   always "raw,overwrite".
 * Add support for Riak/KV 2i indexes using the same design pattern
