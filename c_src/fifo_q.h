@@ -85,15 +85,6 @@ extern "C" {
     }                                                                   \
   } while(0);
 
-struct async_nif_req_entry {
-  ERL_NIF_TERM ref;
-  ErlNifEnv *env;
-  ErlNifPid pid;
-  void *args;
-  void (*fn_work)(ErlNifEnv*, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *);
-  void (*fn_post)(void *);
-};
-
 
 #if defined(__cplusplus)
 }

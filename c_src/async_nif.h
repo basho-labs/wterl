@@ -40,6 +40,16 @@ extern "C" {
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 #define ASYNC_NIF_MAX_QUEUED_REQS 1000 * ASYNC_NIF_MAX_WORKERS
 
+STAT_DECL(qwait, 1000);
+
+struct async_nif_req_entry {
+  ERL_NIF_TERM ref;
+  ErlNifEnv *env;
+  ErlNifPid pid;
+  void *args;
+  void (*fn_work)(ErlNifEnv*, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *);
+  void (*fn_post)(void *);
+};
 DECL_FIFO_QUEUE(reqs, struct async_nif_req_entry);
 
 struct async_nif_work_queue {
