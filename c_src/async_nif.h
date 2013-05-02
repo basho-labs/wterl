@@ -28,9 +28,7 @@ extern "C" {
 
 #include <assert.h>
 #include "fifo_q.h"
-#ifdef ASYNC_NIF_STATS
-#include "stats.h" // TODO: measure, measure... measure again
-#endif
+#include "stats.h"
 
 #ifndef __UNUSED
 #define __UNUSED(v) ((void)(v))
@@ -53,6 +51,7 @@ struct async_nif_req_entry {
 DECL_FIFO_QUEUE(reqs, struct async_nif_req_entry);
 
 struct async_nif_work_queue {
+  STAT_DEF(qwait);
   ErlNifMutex *reqs_mutex;
   ErlNifCond *reqs_cnd;
   FIFO_QUEUE_TYPE(reqs) reqs;
@@ -66,6 +65,7 @@ struct async_nif_worker_entry {
 };
 
 struct async_nif_state {
+  STAT_DEF(qwait);
   unsigned int shutdown;
   unsigned int num_workers;
   struct async_nif_worker_entry worker_entries[ASYNC_NIF_MAX_WORKERS];
@@ -198,22 +198,34 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
         req = fifo_q_get(reqs, async_nif->recycled_reqs);
     }
     enif_mutex_unlock(async_nif->recycled_req_mutex);
+    STAT_TICK(async_nif, qwait);
     return req;
 }
 
 /**
  * Store the request for future re-use.
+ *
+ * req         a request entry with an ErlNifEnv* which will be cleared
+ *             before reuse, but not until then.
+ * async_nif   a handle to our state so that we can find and use the mutex
  */
 void
 async_nif_recycle_req(struct async_nif_req_entry *req, struct async_nif_state *async_nif)
 {
+    STAT_TOCK(async_nif, qwait);
     enif_mutex_lock(async_nif->recycled_req_mutex);
     fifo_q_put(reqs, async_nif->recycled_reqs, req);
     enif_mutex_unlock(async_nif->recycled_req_mutex);
 }
 
 /**
- * TODO:
+ * A string hash function.
+ *
+ * A basic hash function for strings of characters used during the
+ * affinity association.
+ *
+ * s    a NULL terminated set of bytes to be hashed
+ * ->   an integer hash encoding of the bytes
  */
 static inline unsigned int
 async_nif_str_hash_func(const char *s)
@@ -224,7 +236,10 @@ async_nif_str_hash_func(const char *s)
 }
 
 /**
- * TODO:
+ * Enqueue a request for processing by a worker thread.
+ *
+ * Places the request into a work queue determined either by the
+ * provided affinity or by iterating through the available queues.
  */
 static ERL_NIF_TERM
 async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_entry *req, int hint)
@@ -232,6 +247,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* Identify the most appropriate worker for this request. */
   unsigned int qid = 0;
   struct async_nif_work_queue *q = NULL;
+  unsigned int n = async_nif->num_queues;
 
   /* Either we're choosing a queue based on some affinity/hinted value or we
      need to select the next queue in the rotation and atomically update that
@@ -257,8 +273,9 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
           enif_mutex_unlock(q->reqs_mutex);
           return 0;
       }
-
-      if (fifo_q_full(reqs, q->reqs)) { // TODO: || (q->avg_latency > median_latency)
+      double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
+      double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
+      if (fifo_q_full(reqs, q->reqs) || await_inthisq > await) {
           enif_mutex_unlock(q->reqs_mutex);
           qid = (qid + 1) % async_nif->num_queues;
           q = &async_nif->queues[qid];
@@ -266,10 +283,11 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
           break;
       }
       // TODO: at some point add in work sheading/stealing
-  } while(1);
+  } while(n-- > 0);
 
   /* We hold the queue's lock, and we've seletect a reasonable queue for this
      new request so add the request. */
+  STAT_TICK(q, qwait);
   fifo_q_put(reqs, q->reqs, req);
 
   /* Build the term before releasing the lock so as not to race on the use of
@@ -282,6 +300,9 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   return reply;
 }
 
+/**
+ * TODO:
+ */
 static void *
 async_nif_worker_fn(void *arg)
 {
@@ -300,7 +321,8 @@ async_nif_worker_fn(void *arg)
         break;
     }
     if (fifo_q_empty(reqs, q->reqs)) {
-      /* Queue is empty, wait for work */
+      /* Queue is empty so we wait for more work to arrive. */
+      STAT_RESET(q, qwait);
       enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
       goto check_again_for_work;
     } else {
@@ -317,6 +339,7 @@ async_nif_worker_fn(void *arg)
 
       /* Perform the work. */
       req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
+      STAT_TOCK(q, qwait);
 
       /* Now call the post-work cleanup function. */
       req->fn_post(req->args);
@@ -344,6 +367,8 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
   struct async_nif_work_queue *q = NULL;
   struct async_nif_req_entry *req = NULL;
   __UNUSED(env);
+
+  STAT_PRINT(async_nif, qwait, "wterl");
 
   /* Signal the worker threads, stop what you're doing and exit.  To
      ensure that we don't race with the enqueue() process we first
@@ -446,12 +471,14 @@ async_nif_load()
   async_nif->shutdown = 0;
   async_nif->recycled_reqs = fifo_q_new(reqs, ASYNC_NIF_MAX_QUEUED_REQS);
   async_nif->recycled_req_mutex = enif_mutex_create(NULL);
+  STAT_INIT(async_nif, qwait);
 
   for (i = 0; i < async_nif->num_queues; i++) {
       struct async_nif_work_queue *q = &async_nif->queues[i];
       q->reqs = fifo_q_new(reqs, ASYNC_NIF_WORKER_QUEUE_SIZE);
       q->reqs_mutex = enif_mutex_create(NULL);
       q->reqs_cnd = enif_cond_create(NULL);
+      STAT_INIT(q, qwait);
   }
 
   /* Setup the thread pool management. */
