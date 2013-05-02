@@ -1,26 +1,50 @@
-`wterl` is an Erlang interface to the WiredTiger database, and is written
-to support a Riak storage backend that uses WiredTiger.
-
-This backend currently supports only key-value storage and retrieval.
+`wterl` is an Erlang interface to the WiredTiger database, and is written to
+support a Riak storage backend that uses WiredTiger.
 
 Remaining work includes:
 
-* The `wterl:session_create` function currently returns an error under
-  certain circumstances, so we currently ignore its return value.
-* The `riak_kv_wterl_backend` module is currently designed to rely on the
-  fact that it runs in just a single Erlang scheduler thread, which is
-  necessary because WiredTiger doesn't allow a session to be used
-  concurrently by different threads. If the KV node design ever changes to
-  involve concurrency across scheduler threads, this current design will no
-  longer work correctly.
+TODO:
+* Find/fix any code marked "TODO:"
+  * Why do we see {error, {eperm, _}} result on wterl:cursor_close/1 during
+    fold_objects/4?
+  * Why do we see {error, {eperm, _}} result on wterl:cursor_close/1?
+  * Why do we see {error, {eperm, _}} result on wterl:cursor_next/1 during
+    is_empty/1?
+  * Why do we see {error, {eperm, _}} result on wterl:cursor_next_value/1
+    during status/1?
+  * Why do we see {error, {ebusy, _}} result on wterl:drop/2?
+  * Determine a better way to estimate the number of sessions we should
+    configure WT for at startup in riak_kv_wterl_backend:max_sessions/1.
+* Provide a way to configure the cursor options, right now they are
+  always "raw,overwrite".
+* Add support for Riak/KV 2i indexes using the same design pattern
+  as eLevelDB (in a future version consider alternate schema)
+* If an operation using a shared cursor results in a non-normal error
+  then it should be closed/discarded from the recycled pool
+* Cache cursors based on hash(table/config) rather than just table.
+* Finish NIF unload/reload functions and test.
+* Test an upgrade, include a format/schema/WT change.
+* When WT_PANIC is returned first try to unload/reload then driver
+  and reset all state, if that fails then exit gracefully.
 * Currently the `riak_kv_wterl_backend` module is stored in this
   repository, but it really belongs in the `riak_kv` repository.
-* There are currently some stability issues with WiredTiger that can
-  sometimes cause errors when restarting KV nodes with non-empty WiredTiger
-  storage.
+* wterl:truncate/5 can segv, and its tests are commented out
+* Add async_nif and wterl NIF stats to the results provided by the
+  stats API
+* Longer term ideas/changes to consider:
+  * More testing, especially pulse/qc
+  * Riak/KV integration
+    * Store 2i indexes in separate tables
+    * Store buckets, in separate tables and keep a <<bucket/key>> index
+      to ensure that folds across a vnode are easy
+    * Provide a drop bucket API call
+    * Support key expirey
+    * An ets API (like the LevelDB's lets project)
+    * Use mime-type to inform WT's schema for key value encoding
+ * Other use cases within Riak
+    * An AAE driver using WT
+    * An ability to store the ring file via WT
 
-Future support for secondary indexes requires WiredTiger features that are
-under development but are not yet available.
 
 Deploying
 ---------
