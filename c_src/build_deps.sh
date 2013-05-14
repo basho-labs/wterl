@@ -35,12 +35,12 @@ get_wt ()
     if [ -d $BASEDIR/$WT_DIR/.git ]; then
         (cd $BASEDIR/$WT_DIR && git pull -u) || exit 1
     else
-        if [ "X$WT_VSN" == "X" ]; then
+        if [ "X$WT_VSN" != "X" ]; then
             git clone ${WT_REPO} && \
                 (cd $BASEDIR/wiredtiger && git checkout $WT_VSN || exit 1)
         else
             git clone -b ${WT_BRANCH} ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)
+                (cd $BASEDIR/wiredtiger && git checkout $WT_BRANCH origin/$WT_BRANCH || exit 1)
         fi
         mv wiredtiger $WT_DIR || exit 1
     fi

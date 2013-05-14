@@ -415,7 +415,7 @@ establish_connection(Config, Type) ->
                     wterl:config_value(transactional, Config, true),
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
-                    wterl:config_value(statistics_log, Config, [{wait, 30}]), % sec
+                    wterl:config_value(statistics_log, Config, [{wait, 300}]), % sec
                     wterl:config_value(verbose, Config, [ "salvage", "verify"
                          % Note: for some unknown reason, if you add these additional
                          % verbose flags Erlang SEGV's "size_object: bad tag for 0x80"
