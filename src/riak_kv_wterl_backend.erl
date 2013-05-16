@@ -107,6 +107,12 @@ start(Partition, Config) ->
                         "lsm"
                 end,
             {ok, Connection} = establish_connection(Config, Type),
+            case wterl_conn:count() > erlang:system_info(schedulers) of
+                true ->
+                    ok = wterl:set_concurrency(wterl_conn:count());
+                false ->
+                    ok = wterl:set_concurrency(erlang:system_info(schedulers))
+            end,
             Table = Type ++ ":" ++ integer_to_list(Partition),
             Compressor =
                 case wterl:config_value(block_compressor, Config, "snappy") of
@@ -122,7 +128,7 @@ start(Partition, Config) ->
                         [{internal_page_max, "128K"},
                          {leaf_page_max, "128K"},
                          {lsm_chunk_size, "100MB"},
-                         {lsm_merge_threads, "2"},
+                         {lsm_merge_threads, 2},
                          {prefix_compression, false},
                          {lsm_bloom_newest, true},
                          {lsm_bloom_oldest, true} ,

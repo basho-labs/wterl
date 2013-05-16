@@ -65,7 +65,8 @@
          config_value/3,
          priv_dir/0,
          fold_keys/3,
-         fold/3]).
+         fold/3,
+         set_concurrency/1]).
 
 -export([set_event_handler_pid/1]).
 
@@ -511,6 +512,11 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
 -spec set_event_handler_pid(pid()) -> ok.
 set_event_handler_pid(Pid)
   when is_pid(Pid) ->
+    ?nif_stub.
+
+
+-spec set_concurrency(non_neg_integer()) -> ok | {error, term()}.
+set_concurrency(_Count) ->
     ?nif_stub.
 
 

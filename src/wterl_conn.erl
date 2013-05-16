@@ -30,13 +30,14 @@
 
 %% API
 -export([start_link/0, stop/0,
-         open/1, open/2, open/3, is_open/0, get/0, close/1]).
+         open/1, open/2, open/3, is_open/0, get/0, close/1, count/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, { conn :: wterl:connection() }).
+-record(state, { conn  :: wterl:connection(),
+                 count :: non_neg_integer() }).
 
 -type config_list() :: [{atom(), any()}].
 
@@ -70,6 +71,10 @@ is_open() ->
 get() ->
     gen_server:call(?MODULE, get, infinity).
 
+-spec count() -> non_neg_integer().
+count() ->
+    gen_server:call(?MODULE, count, infinity).
+
 -spec close(wterl:connection()) -> ok.
 close(_Conn) ->
     gen_server:call(?MODULE, {close, self()}, infinity).
@@ -88,15 +93,15 @@ handle_call({open, Dir, ConnectionConfig, SessionConfig, Caller}, _From, #state{
             {ok, ConnRef}=OK ->
                 Monitor = erlang:monitor(process, Caller),
                 true = ets:insert(wterl_ets, {Monitor, Caller}),
-                {OK, State#state{conn = ConnRef}};
+                {OK, State#state{conn = ConnRef, count = 1}};
             Error ->
                 {Error, State}
         end,
     {reply, Reply, NState};
-handle_call({open, _Dir, _ConnectionConfig, _SessionConfig, Caller}, _From, #state{conn=ConnRef}=State) ->
+handle_call({open, _Dir, _ConnectionConfig, _SessionConfig, Caller}, _From, #state{conn=ConnRef, count=Count}=State) ->
     Monitor = erlang:monitor(process, Caller),
     true = ets:insert(wterl_ets, {Monitor, Caller}),
-    {reply, {ok, ConnRef}, State};
+    {reply, {ok, ConnRef}, State#state{count = Count + 1}};
 
 handle_call(is_open, _From, #state{conn=ConnRef}=State) ->
     {reply, ConnRef /= undefined, State};
@@ -106,18 +111,20 @@ handle_call(get, _From, #state{conn=undefined}=State) ->
 handle_call(get, _From, #state{conn=ConnRef}=State) ->
     {reply, {ok, ConnRef}, State};
 
-handle_call({close, Caller}, _From, #state{conn=ConnRef}=State) ->
+handle_call({close, Caller}, _From, #state{conn=ConnRef, count=Count}=State) ->
     {[{Monitor, Caller}], _} = ets:match_object(wterl_ets, {'_', Caller}, 1),
     true = erlang:demonitor(Monitor, [flush]),
     true = ets:delete(wterl_ets, Monitor),
     NState = case ets:info(wterl_ets, size) of
                  0 ->
                      do_close(ConnRef),
-                     State#state{conn=undefined};
+                     State#state{conn=undefined, count=0};
                  _ ->
-                     State
+                     State#state{count = Count - 1}
              end,
     {reply, ok, NState};
+handle_call(count, _From, #state{count=Count}=State) ->
+    {reply, Count, State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 

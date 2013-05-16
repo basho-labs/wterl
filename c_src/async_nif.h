@@ -34,7 +34,7 @@ extern "C" {
 #define __UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 128
+#define ASYNC_NIF_MAX_WORKERS 1024
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 #define ASYNC_NIF_MAX_QUEUED_REQS 1000 * ASYNC_NIF_MAX_WORKERS
 
@@ -67,6 +67,7 @@ struct async_nif_worker_entry {
 struct async_nif_state {
   STAT_DEF(qwait);
   unsigned int shutdown;
+  ErlNifMutex *worker_mutex;
   unsigned int num_workers;
   struct async_nif_worker_entry worker_entries[ASYNC_NIF_MAX_WORKERS];
   unsigned int num_queues;
@@ -167,6 +168,9 @@ struct async_nif_state {
 #define ASYNC_NIF_WORK_ENV new_env
 
 #define ASYNC_NIF_REPLY(msg) enif_send(NULL, pid, env, enif_make_tuple2(env, ref, msg))
+
+#define ASYNC_NIF_SET_MIN_WORKERS(n) \
+    async_nif_set_min_active_workers(*(struct async_nif_state**)enif_priv_data(env), (n))
 
 /**
  * Return a request structure from the recycled req queue if one exists,
@@ -425,8 +429,40 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
 
   enif_mutex_unlock(async_nif->recycled_req_mutex);
   enif_mutex_destroy(async_nif->recycled_req_mutex);
+  enif_mutex_destroy(async_nif->worker_mutex);
   memset(async_nif, 0, sizeof(struct async_nif_state) + (sizeof(struct async_nif_work_queue) * async_nif->num_queues));
   enif_free(async_nif);
+}
+
+static int
+async_nif_set_min_active_workers(struct async_nif_state *async_nif, unsigned int n)
+{
+  unsigned int i = 0;
+
+  enif_mutex_lock(async_nif->worker_mutex);
+
+  if (n <= 0 || n <= async_nif->num_workers || n > ASYNC_NIF_MAX_WORKERS)
+      return async_nif->num_workers;
+
+  /* Start the worker threads. */
+  for (i = async_nif->num_workers; i < n; i++) {
+    struct async_nif_worker_entry *we = &async_nif->worker_entries[i];
+    we->async_nif = async_nif;
+    we->worker_id = i;
+    we->q = &async_nif->queues[i % async_nif->num_queues];
+    if (enif_thread_create(NULL, &async_nif->worker_entries[i].tid,
+                            &async_nif_worker_fn, (void*)we, NULL) != 0) {
+        /* error, return number of threads started so far */
+        we->async_nif = 0;
+        we->worker_id = 0;
+        we->q = 0;
+        return i;
+    } else {
+        async_nif->num_workers = i + 1;
+    }
+  }
+  enif_mutex_unlock(async_nif->worker_mutex);
+  return i;
 }
 
 static void *
@@ -466,7 +502,6 @@ async_nif_load()
          sizeof(struct async_nif_work_queue) * num_queues);
 
   async_nif->num_queues = num_queues;
-  async_nif->num_workers = 2 * num_queues;
   async_nif->next_q = 0;
   async_nif->shutdown = 0;
   async_nif->recycled_reqs = fifo_q_new(reqs, ASYNC_NIF_MAX_QUEUED_REQS);
@@ -485,15 +520,12 @@ async_nif_load()
   memset(async_nif->worker_entries, 0, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
 
   /* Start the worker threads. */
-  for (i = 0; i < async_nif->num_workers; i++) {
-    struct async_nif_worker_entry *we = &async_nif->worker_entries[i];
-    we->async_nif = async_nif;
-    we->worker_id = i;
-    we->q = &async_nif->queues[i % async_nif->num_queues];
-    if (enif_thread_create(NULL, &async_nif->worker_entries[i].tid,
-                            &async_nif_worker_fn, (void*)we, NULL) != 0) {
+  async_nif->worker_mutex = enif_mutex_create(NULL);
+  unsigned int started = async_nif_set_min_active_workers(async_nif, 2 * num_queues);
+  if (started != 2 * num_queues) {
+      /* Something went wrong, shut down. */
       async_nif->shutdown = 1;
-
+      enif_mutex_lock(async_nif->worker_mutex);
       for (j = 0; j < async_nif->num_queues; j++) {
           struct async_nif_work_queue *q = &async_nif->queues[j];
           enif_cond_broadcast(q->reqs_cnd);
@@ -511,10 +543,12 @@ async_nif_load()
       }
 
       memset(async_nif->worker_entries, 0, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
+      enif_mutex_unlock(async_nif->worker_mutex);
+      enif_mutex_destroy(async_nif->worker_mutex);
       enif_free(async_nif);
       return NULL;
-    }
   }
+  async_nif->num_workers = started;
   return async_nif;
 }
 

@@ -84,7 +84,7 @@ repl:
 	@$(ERL) -pa ebin -pz deps/lager/ebin
 
 eunit-repl:
-	@$(ERL) -pa .eunit deps/lager/ebin
+	@$(ERL) -pa .eunit -pz ebin deps/lager/ebin
 
 ERL_TOP=		/home/gburd/eng/otp_R15B01
 CERL=			${ERL_TOP}/bin/cerl

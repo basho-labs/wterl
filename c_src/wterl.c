@@ -2025,6 +2025,25 @@ ASYNC_NIF_DECL(
 
 
 /**
+ * Used to set the minimum number of worker threads.
+ */
+static ERL_NIF_TERM
+wterl_set_concurrency(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  int n = 0;
+
+  if (!(argc == 1 && enif_is_number(env, argv[0]))) {
+      return enif_make_badarg(env);
+  }
+
+  enif_get_int(env, argv[0], &n);
+  ASYNC_NIF_SET_MIN_WORKERS(n);
+
+  return ATOM_OK;
+}
+
+
+/**
  * Called by wterl_event_handler to set the pid for message delivery.
  */
 static ERL_NIF_TERM
@@ -2276,6 +2295,7 @@ static ErlNifFunc nif_funcs[] =
     {"cursor_search_near_nif", 4, wterl_cursor_search_near},
     {"cursor_search_nif", 4, wterl_cursor_search},
     {"cursor_update_nif", 4, wterl_cursor_update},
+    {"set_concurrency", 1, wterl_set_concurrency},
     {"set_event_handler_pid", 1, wterl_set_event_handler_pid},
 };
 
