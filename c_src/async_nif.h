@@ -30,11 +30,11 @@ extern "C" {
 #include "fifo_q.h"
 #include "stats.h"
 
-#ifndef __UNUSED
-#define __UNUSED(v) ((void)(v))
+#ifndef UNUSED
+#define UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 128
+#define ASYNC_NIF_MAX_WORKERS 1024
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 #define ASYNC_NIF_MAX_QUEUED_REQS 1000 * ASYNC_NIF_MAX_WORKERS
 
@@ -80,11 +80,11 @@ struct async_nif_state {
 #define ASYNC_NIF_DECL(decl, frame, pre_block, work_block, post_block)  \
   struct decl ## _args frame;                                           \
   static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) { \
-  __UNUSED(worker_id);                                                  \
+  UNUSED(worker_id);                                                    \
   do work_block while(0);                                               \
   }                                                                     \
   static void fn_post_ ## decl (struct decl ## _args *args) {           \
-    __UNUSED(args);                                                     \
+    UNUSED(args);                                                       \
     do post_block while(0);                                             \
   }                                                                     \
   static ERL_NIF_TERM decl(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv_in[]) { \
@@ -92,7 +92,7 @@ struct async_nif_state {
     struct decl ## _args *args = &on_stack_args;                        \
     struct decl ## _args *copy_of_args;                                 \
     struct async_nif_req_entry *req = NULL;                             \
-    const char *affinity = NULL;                                        \
+    const unsigned int affinity = 0;                                    \
     ErlNifEnv *new_env = NULL;                                          \
     /* argv[0] is a ref used for selective recv */                      \
     const ERL_NIF_TERM *argv = argv_in + 1;                             \
@@ -122,7 +122,7 @@ struct async_nif_state {
     req->fn_post = (void (*)(void *))fn_post_ ## decl;                 \
     int h = -1;                                                        \
     if (affinity)                                                      \
-        h = async_nif_str_hash_func(affinity) % async_nif->num_queues; \
+        h = affinity % async_nif->num_queues;                          \
     ERL_NIF_TERM reply = async_nif_enqueue_req(async_nif, req, h);     \
     if (!reply) {                                                      \
       fn_post_ ## decl (args);                                         \
@@ -216,23 +216,6 @@ async_nif_recycle_req(struct async_nif_req_entry *req, struct async_nif_state *a
     enif_mutex_lock(async_nif->recycled_req_mutex);
     fifo_q_put(reqs, async_nif->recycled_reqs, req);
     enif_mutex_unlock(async_nif->recycled_req_mutex);
-}
-
-/**
- * A string hash function.
- *
- * A basic hash function for strings of characters used during the
- * affinity association.
- *
- * s    a NULL terminated set of bytes to be hashed
- * ->   an integer hash encoding of the bytes
- */
-static inline unsigned int
-async_nif_str_hash_func(const char *s)
-{
-  unsigned int h = (unsigned int)*s;
-  if (h) for (++s ; *s; ++s) h = (h << 5) - h + (unsigned int)*s;
-  return h;
 }
 
 /**
@@ -366,7 +349,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
   unsigned int num_queues = async_nif->num_queues;
   struct async_nif_work_queue *q = NULL;
   struct async_nif_req_entry *req = NULL;
-  __UNUSED(env);
+  UNUSED(env);
 
   STAT_PRINT(async_nif, qwait, "wterl");
 
@@ -521,7 +504,7 @@ async_nif_load()
 static void
 async_nif_upgrade(ErlNifEnv *env)
 {
-     __UNUSED(env);
+     UNUSED(env);
     // TODO:
 }
 

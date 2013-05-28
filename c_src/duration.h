@@ -33,8 +33,7 @@ static uint64_t ts(time_scale unit)
             ((uint64_t)ts.tv_nsec / scale[unit].div));
 }
 
-#if 0
-//if defined(__i386__) || defined(__x86_64__)
+if defined(__i386__) || defined(__x86_64__)
 
 /**
  * cpu_clock_ticks()
@@ -54,6 +53,10 @@ static inline uint64_t cpu_clock_ticks()
           : "%ebx", "%ecx" );
      return (uint64_t)hi << 32 | lo;
 }
+
+#endif
+
+#if 0
 
 /**
  * cpu_clock_ticks()

@@ -122,7 +122,7 @@ start(Partition, Config) ->
                         [{internal_page_max, "128K"},
                          {leaf_page_max, "128K"},
                          {lsm_chunk_size, "100MB"},
-                         {lsm_merge_threads, "2"},
+                         {lsm_merge_threads, 2},
                          {prefix_compression, false},
                          {lsm_bloom_newest, true},
                          {lsm_bloom_oldest, true} ,
