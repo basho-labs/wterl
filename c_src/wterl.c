@@ -21,56 +21,47 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
+#include <inttypes.h>
 #include <errno.h>
 
-#ifdef DEBUG
-#include <stdio.h>
-#include <stdarg.h>
-#define dprint(s, ...) do {                                             \
-    fprintf(stderr, s, ##__VA_ARGS__);                                  \
-    fprintf(stderr, "\r\n");                                            \
-    fflush(stderr);                                                     \
-    } while(0);
-#else
-#  define dprint(s, ...) {}
-#endif
-
-#ifndef UNUSED
-#define UNUSED(v) ((void)(v))
-#endif
-
+#include "common.h"
 #include "wiredtiger.h"
 #include "async_nif.h"
 #include "khash.h"
-
-#ifdef WTERL_STATS
 #include "stats.h"
-#endif
 
-#if (ASYNC_NIF_MAX_WORKERS > 32768)
-#error "WterlCtx cache won't work properly with > 32,768 workers."
-#endif
+#define CTX_CACHE_SIZE ASYNC_NIF_MAX_WORKERS
 
 static ErlNifResourceType *wterl_conn_RESOURCE;
+static ErlNifResourceType *wterl_ctx_RESOURCE;
 static ErlNifResourceType *wterl_cursor_RESOURCE;
 
-/* Generators for named, type-specific hash table functions. */
-KHASH_MAP_INIT_STR(uri, unsigned int);  // URI -> number of cursors(URI)
+typedef struct struct WterlCtxHandle {
+    WT_SESSION *session;  // open session
+    WT_CURSOR *cursors[]; // open cursors, all reset ready to reuse
+} WterlCtxHandle;
 
-    union {
-        unsigned int hash[];
-        struct {
-            unsigned int:02 nest;  // cuckoo's nest choosen on hash collision
-            unsigned int:15 off;   // bitpop((bmp & (1 << off) - 1) & bmp)
-            unsigned int:10 depth;
-        } nests;
-    } cuckoo;
+struct ctx_lru_entry {
+    WterlCtxHandle *ctx;
+    u_int64_t sig;
+    SLIST_HEAD(ctx, struct WterlCtxHandle*) set;
+    STAILQ_ENTRY(struct ctx_lru_entry) entries;
+};
 
+KHASH_SET_INIT_INT64(ctx_idx, struct ctx_group*);
 
-typedef struct {
-    WT_SESSION *session;
-    WT_CURSOR  *cursor;
-} WterlCtx;
+struct ctx_cache {
+    size_t size;
+    struct lru {
+	STAILQ_HEAD(lru, struct ctx_lru_entry*) lru;
+    } lru;
+    struct idx {
+	int h;
+	ctx_group cgs[CTX_CACHE_SIZE];
+	khash_t(ctx_idx) *ctx;
+    } idx;
+};
 
 typedef struct {
     WT_CONNECTION *conn;
@@ -126,6 +117,213 @@ struct wterl_priv_data {
 /* Global init for async_nif. */
 ASYNC_NIF_INIT(wterl);
 
+
+/**
+ * Is the cache full?
+ *
+ * Test to see if the cache is full or not.
+ *
+ * -> 0=false/not full yet, 1=true/cache is full
+ */
+static int
+__ctx_cache_full(struct wterl_ctx_cache *cache)
+{
+    return cache->size == CTX_CACHE_SIZE ? 1 : 0;
+}
+
+/**
+ * Evict items from the cache.
+ *
+ * Evict some number of items from the cache to make space for other items.
+ *
+ * ->   number of items evicted
+ */
+static int
+__ctx_cache_evict(struct ctx_cache *cache)
+{
+    // TODO:
+}
+
+/**
+ * Find a matching item in the cache.
+ *
+ * See if there exists an item in the cache with a matching signature, if
+ * so remove it from the cache and return it for use by the callee.
+ *
+ * sig  a 32-bit signature (hash) representing the session/cursor* needed
+ *      for the operation
+ */
+static WterlCtxHandle *
+__ctx_cache_find(wterl_ctx_cache *cache, u_int64_t sig)
+{
+    khiter_t k;
+
+    kh_get(ctx_idx, cache->idx.ctx, sig);
+    if (k != kh_end(h)) {
+        /*
+	 * This signature exists in the hashtable, that's good news. Maybe
+	 * there is a context open and ready for us to reuse, let's check.
+	 */
+	struct ctx_group *cg = kh_value(ctx_idx, k);
+	if (SLIST_EMPTY(cg->set)) { // cache miss
+	    /*
+	     * Nope, there are no contexts available for reuse with this
+	     * signature.
+	     */
+	    return NULL;
+	} else { // cache hit
+	    /*
+	     * Yes, we've found a context available for reuse with the
+	     * desired signature.  Remove it from the cache and return it
+	     * to the caller.
+	     */
+	    WterlCtxHandle *p = SLIST_REMOVE(cg->set); // remove from index
+	    WterlCtxHandle *q;
+	    STAILQ_FOREACH(q, &cache->lru, entries) {
+		if (p == q) {
+		    STAILQ_REMOVE(&cache-lru, q, ctx_lru_entries, entries);
+		}
+	    }
+	    // remove from lru
+	    cache->size--; // update cache size
+	    return p;
+	}
+    } else {
+        /*
+	 * The signature didn't match any that we're caching contexts for right
+	 * now, so clearly there won't be any cached contexts for this either.
+	 */
+	return NULL;
+    }
+}
+
+/**
+ * Add/Return an item to the cache.
+ *
+ * Return an item into the cache, reset the cursors it has open and put it at
+ * the front of the LRU.
+ */
+static int
+__ctx_cache_add(wterl_ctx_cache *cache, WterlCtxHandle *e)
+{
+    khiter_t k;
+
+    kh_get(ctx_idx, cache->idx.ctx, sig);
+    if (k != kh_end(h)) {
+        /*
+	 * This signature exists in the bitmap, that's good news. We can just
+	 * put this into the list of cached items for that signature.
+	 */
+	struct ctx_group *cg = kh_value(ctx_idx, k);
+	SLIST_INSERT_HEAD(cg->set, e, entries); // add to index
+	STAILQ_INSERT_HEAD(&cache->lru, e, entries); // add to lru
+	cache->size++; // update cache size
+    } else {
+        /*
+	 * The signature didn't match any that we're caching contexts for right
+	 * now, so we need to add a context group for it.
+	 */
+	if (cache->idx
+	return NULL;
+    }
+}
+
+/**
+ * Produce the Morton Number from two 32-bit unsigned integers.
+ *   e.g.  p = 0101 1011 0100 0011
+ *         q = 1011 1100 0001 0011
+ *         z = 0110 0111 1101 1010 0010 0001 0000 1111
+ */
+static inline u_int64_t
+__interleave(u_int32_t p, u_int32_t q)
+{
+    static const u_int32_t B[] = {0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF};
+    static const u_int32_t S[] = {1, 2, 4, 8};
+    u_int32_t x, y;
+    u_int64_t z;
+
+    x = p & 0x0000FFFF; // Interleave lower 16 bits of p as x and q as y, so the
+    y = q & 0x0000FFFF; // bits of x are in the even positions and bits from y
+    z = 0;              // in the odd; the first 32 bits of 'z' is the result.
+
+    x = (x | (x << S[3])) & B[3];
+    x = (x | (x << S[2])) & B[2];
+    x = (x | (x << S[1])) & B[1];
+    x = (x | (x << S[0])) & B[0];
+
+    y = (y | (y << S[3])) & B[3];
+    y = (y | (y << S[2])) & B[2];
+    y = (y | (y << S[1])) & B[1];
+    y = (y | (y << S[0])) & B[0];
+
+    z = x | (y << 1);
+
+    x = (p >> 16) & 0x0000FFFF; // Interleave the upper 16 bits of p as x and q as y
+    y = (q >> 16) & 0x0000FFFF; // just as before.
+
+    x = (x | (x << S[3])) & B[3];
+    x = (x | (x << S[2])) & B[2];
+    x = (x | (x << S[1])) & B[1];
+    x = (x | (x << S[0])) & B[0];
+
+    y = (y | (y << S[3])) & B[3];
+    y = (y | (y << S[2])) & B[2];
+    y = (y | (y << S[1])) & B[1];
+    y = (y | (y << S[0])) & B[0];
+
+    z = (z << 16) | (x | (y << 1)); // the resulting 64-bit Morton Number.
+
+    return z;
+}
+
+/**
+ * A string hash function.
+ *
+ * A basic hash function for strings of characters used during the
+ * affinity association.
+ *
+ * s    a NULL terminated set of bytes to be hashed
+ * ->   an integer hash encoding of the bytes
+ */
+static inline unsigned int
+__str_hash_func(const char *s)
+{
+    unsigned int h = (unsigned int)*s;
+    if (h) for (++s ; *s; ++s) h = (h << 5) - h + (unsigned int)*s;
+    return h;
+}
+
+/**
+ * Create a signature for the operation we're about to perform.
+ *
+ * Create a 32bit signature for this a combination of session configuration
+ * some number of cursors open on tables each potentially with a different
+ * configuration. "session_config, [{table_name, cursor_config}, ...]"
+ *
+ * session_config   the string used to configure the WT_SESSION
+ * ...              each pair of items in the varargs array is a table name,
+ *                  cursor config pair
+ */
+static u_int32_t
+__ctx_cache_sig(const char *session_config, ...)
+{
+    va_list ap;
+    int i;
+    u_int64_t h;
+
+    if (NULL == session_config)
+	return 0;
+
+    h = __str_hash_fn(session_config);
+
+    va_start (ap, count);
+    for (i = 0; i < count; i++) {
+	h = __morton(h, __str_hash_fn(va_arg(ap, const char *)));
+	h <<= 1;
+    }
+    va_end (ap);
+    return (u_int32_t)(h & 0xFFFFFFFF);
+}
 
 /**
  * Callback to handle error messages.
@@ -270,6 +468,24 @@ __init_session_and_cursor_cache(WterlConnHandle *conn_handle, WterlCtx *ctx)
 }
 
 /**
+ * Get the per-worker reusable WT_SESSION for a worker_id.
+ */
+static int
+__session_for(WterlConnHandle *conn_handle, unsigned int worker_id, WT_SESSION **session)
+{
+    WterlCtx *ctx = &conn_handle->contexts[worker_id];
+    int rc = 0;
+
+    if (ctx->session == NULL) {
+        enif_mutex_lock(conn_handle->contexts_mutex);
+        rc = __init_session_and_cursor_cache(conn_handle, ctx);
+        enif_mutex_unlock(conn_handle->contexts_mutex);
+    }
+    *session = ctx->session;
+    return rc;
+}
+
+/**
  * Close all sessions and all cursors open on any objects.
  *
  * Note: always call within enif_mutex_lock/unlock(conn_handle->contexts_mutex)
@@ -327,23 +543,6 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
             }
         }
     }
-}
-
-/**
- * A string hash function.
- *
- * A basic hash function for strings of characters used during the
- * affinity association.
- *
- * s    a NULL terminated set of bytes to be hashed
- * ->   an integer hash encoding of the bytes
- */
-static inline unsigned int
-__str_hash_func(const char *s)
-{
-    unsigned int h = (unsigned int)*s;
-    if (h) for (++s ; *s; ++s) h = (h << 5) - h + (unsigned int)*s;
-    return h;
 }
 
 /**
