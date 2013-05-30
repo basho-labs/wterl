@@ -26,6 +26,8 @@
 extern "C" {
 #endif
 
+#define fifo_t(name)                      \
+  struct fifo_q__ ## name *
 #define FIFO_QUEUE_TYPE(name)             \
   struct fifo_q__ ## name *
 #define DECL_FIFO_QUEUE(name, type)       \

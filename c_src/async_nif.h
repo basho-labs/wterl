@@ -92,7 +92,7 @@ struct async_nif_state {
     struct decl ## _args *args = &on_stack_args;                        \
     struct decl ## _args *copy_of_args;                                 \
     struct async_nif_req_entry *req = NULL;                             \
-    const unsigned int affinity = 0;                                    \
+    unsigned int affinity = 0;						\
     ErlNifEnv *new_env = NULL;                                          \
     /* argv[0] is a ref used for selective recv */                      \
     const ERL_NIF_TERM *argv = argv_in + 1;                             \

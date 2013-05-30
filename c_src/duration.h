@@ -33,7 +33,7 @@ static uint64_t ts(time_scale unit)
             ((uint64_t)ts.tv_nsec / scale[unit].div));
 }
 
-if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || defined(__x86_64__)
 
 /**
  * cpu_clock_ticks()
