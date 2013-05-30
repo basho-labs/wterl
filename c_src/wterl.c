@@ -40,14 +40,14 @@ static ErlNifResourceType *wterl_cursor_RESOURCE;
 /* WiredTiger object names*/
 typedef char Uri[128];
 
-typedef struct wterl_ctx {
+struct wterl_ctx {
     WT_SESSION *session;  // open session
     WT_CURSOR **cursors; // open cursors, all reset ready to reuse
     uint64_t sig;
-} WterlCtxHandle;
+};
 
 struct cache_entry {
-    WterlCtxHandle *ctx;
+    struct wterl_ctx *ctx;
     uint64_t sig;
     uint64_t tstamp;
 };
@@ -63,6 +63,8 @@ typedef struct wterl_conn {
     kbtree_t(cache_entries) *cache;
     fifo_t(cache_entries) recycled_cache_entries;
     SLIST_ENTRY(wterl_conn) conns;
+    uint64_t histogram[64];
+    uint64_t hits, misses;
 } WterlConnHandle;
 
 typedef struct {
@@ -106,6 +108,51 @@ static ERL_NIF_TERM ATOM_MSG_PID;
 ASYNC_NIF_INIT(wterl);
 
 /**
+ * A string hash function.
+ *
+ * A basic hash function for strings of characters used during the
+ * affinity association.
+ *
+ * s    a NULL terminated set of bytes to be hashed
+ * ->   an integer hash encoding of the bytes
+ */
+static inline uint32_t
+__str_hash(const char *s)
+{
+    unsigned int h = (unsigned int)*s;
+    if (h) for (++s ; *s; ++s) h = (h << 5) - h + (unsigned int)*s;
+    return h;
+}
+
+/**
+ * Calculate the log2 of 64bit unsigned integers.
+ */
+#ifdef __GCC__
+#define __log2(X) ((unsigned) ((8 * (sizeof(uint64_t) - 1))  - __builtin_clzll((X))))
+#else
+static inline uint32_t __log2(uint64_t x) {
+     static const int tab64[64] = {
+          63,  0, 58,  1, 59, 47, 53,  2,
+          60, 39, 48, 27, 54, 33, 42,  3,
+          61, 51, 37, 40, 49, 18, 28, 20,
+          55, 30, 34, 11, 43, 14, 22,  4,
+          62, 57, 46, 52, 38, 26, 32, 41,
+          50, 36, 17, 19, 29, 10, 13, 21,
+          56, 45, 25, 31, 35, 16,  9, 12,
+          44, 24, 15,  8, 23,  7,  6,  5};
+     if (x == 0) return 0;
+     uint64_t v = x;
+     v |= v >> 1;
+     v |= v >> 2;
+     v |= v >> 4;
+     v |= v >> 8;
+     v |= v >> 16;
+     v |= v >> 32;
+     return tab64[((uint64_t)((v - (v >> 1)) * 0x07EDD5E59A4E28C2)) >> 58];
+}
+#endif
+
+/**
  * Is the context cache full?
  *
  * ->   0 = no/false, anything else is true
@@ -125,11 +172,40 @@ __ctx_cache_full(WterlConnHandle *conn)
  * ->   number of items evicted
  */
 static int
-__ctx_cache_evict(WterlConnHandle *conn)
+__ctx_cache_evict(WterlConnHandle *conn_handle)
 {
-    // TODO:
-    UNUSED(conn);
-    return 0;
+    uint32_t i;
+    uint64_t mean, now = cpu_clock_ticks();
+    kbtree_t(cache_entries) *t = conn_handle->cache;
+
+    // Find the mean of the recorded times that items stayed in cache.
+    for (i = 0; i < 64; i++)
+	mean += (conn_handle->histogram[i] * i);
+    if (mean > 0)
+	mean /= conn_handle->hits;
+
+    // Clear out the histogram and hit/misses
+    memset(conn_handle->histogram, 0, sizeof(uint64_t) * 64);
+    conn_handle->hits = 0;
+    conn_handle->misses = 0;
+
+    // Evict anything older than the mean time in queue.
+    i = 0;
+#define traverse_f(p)							\
+    {									\
+	struct cache_entry *e = *p;					\
+	uint64_t elapsed = e->tstamp - now;				\
+	if (__log2(elapsed) > mean) {					\
+	    kb_del(cache_entries, t, e);				\
+	    e->ctx->session->close(e->ctx->session, NULL);		\
+	    enif_free(e->ctx);						\
+	    fifo_q_put(cache_entries, conn_handle->recycled_cache_entries, e);	\
+	    i++;							\
+	}								\
+    }
+    __kb_traverse(struct cache_entry *, t, traverse_f);
+#undef traverse_f
+    return i;
 }
 
 /**
@@ -141,21 +217,26 @@ __ctx_cache_evict(WterlConnHandle *conn)
  * sig  a 64-bit signature (hash) representing the session/cursor* needed
  *      for the operation
  */
-static WterlCtxHandle *
-__ctx_cache_find(WterlConnHandle *conn, const uint64_t sig)
+static struct wterl_ctx *
+__ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
 {
-    WterlCtxHandle *p = NULL;
+    struct wterl_ctx *p = NULL;
     struct cache_entry key, *e;
 
     key.sig = sig;
-    e = *kb_get(cache_entries, conn->cache, &key);
+    e = *kb_get(cache_entries, conn_handle->cache, &key);
     if (e) {
 	// cache hit, remove it from the tree
-	kb_del(cache_entries, conn->cache, &key);
+        uint64_t elapsed = cpu_clock_ticks() - e->tstamp;
+	kb_del(cache_entries, conn_handle->cache, &key);
 	p = e->ctx;
 	memset(e, 0, sizeof(struct cache_entry));
-	fifo_q_put(cache_entries, conn->recycled_cache_entries, e);
-    } // else { cache miss, so p == NULL when we return }
+	fifo_q_put(cache_entries, conn_handle->recycled_cache_entries, e);
+	conn_handle->hits++;
+        conn_handle->histogram[__log2(elapsed)]++;
+    } else {
+	conn_handle->misses++;
+    }
     return p;
 }
 
@@ -166,7 +247,7 @@ __ctx_cache_find(WterlConnHandle *conn, const uint64_t sig)
  * the front of the LRU.
  */
 static int
-__ctx_cache_add(WterlConnHandle *conn, WterlCtxHandle *c)
+__ctx_cache_add(WterlConnHandle *conn, struct wterl_ctx *c)
 {
     struct cache_entry *e;
 
@@ -230,23 +311,6 @@ __zi(uint32_t p, uint32_t q)
 }
 
 /**
- * A string hash function.
- *
- * A basic hash function for strings of characters used during the
- * affinity association.
- *
- * s    a NULL terminated set of bytes to be hashed
- * ->   an integer hash encoding of the bytes
- */
-static inline uint32_t
-__str_hash(const char *s)
-{
-    unsigned int h = (unsigned int)*s;
-    if (h) for (++s ; *s; ++s) h = (h << 5) - h + (unsigned int)*s;
-    return h;
-}
-
-/**
  * Create a signature for the operation we're about to perform.
  *
  * Create a 32bit signature for this a combination of session configuration
@@ -300,7 +364,7 @@ __ctx_cache_sig(const char *c, ...)
  * session.
  */
 static int
-__retain_ctx(WterlConnHandle *conn_handle, WterlCtxHandle **ctx,
+__retain_ctx(WterlConnHandle *conn_handle, struct wterl_ctx **ctx,
 	     const char *session_config, ...)
 {
     int i, count;
@@ -314,17 +378,18 @@ __retain_ctx(WterlConnHandle *conn_handle, WterlCtxHandle **ctx,
     va_end (ap);
 
     enif_mutex_lock(conn_handle->cache_mutex);
-    *ctx = __ctx_cache_find(conn_handle, sig);
-    if (NULL == *ctx) {
+    (*ctx) = __ctx_cache_find(conn_handle, sig);
+    if ((*ctx) == NULL) {
 	// cache miss
 	WT_CONNECTION *conn = conn_handle->conn;
 	WT_SESSION *session = NULL;
 	int rc = conn->open_session(conn, NULL, session_config, &session);
 	if (rc != 0)
 	    return rc;
-	size_t s = sizeof(WterlCtxHandle) + ((count / 2) * sizeof(WT_CURSOR*));
-	*ctx = enif_alloc_resource(wterl_ctx_RESOURCE, s);
-	if (NULL == *ctx) {
+	size_t s = sizeof(struct wterl_ctx) + ((count / 2) * sizeof(WT_CURSOR*));
+	// TODO: *ctx = enif_alloc_resource(wterl_ctx_RESOURCE, s);
+	*ctx = enif_alloc(s);
+	if (*ctx == NULL) {
 	    session->close(session, NULL);
 	    return ENOMEM;
 	}
@@ -337,20 +402,24 @@ __retain_ctx(WterlConnHandle *conn_handle, WterlCtxHandle **ctx,
 	for (i = 0; i < (count / 2); i++) {
 	    const char *uri = va_arg(ap, const char *);
 	    const char *config = va_arg(ap, const char *);
+	    // TODO: error when uri or config is NULL
 	    rc = session->open_cursor(session, uri, NULL, config, &cursors[i]);
 	    if (rc != 0) {
-		session->close(session, NULL); // this will free cursors too
+		session->close(session, NULL); // this will free the cursors too
 		return rc;
 	    }
 	}
 	va_end (ap);
-    } // else { cache hit so 'ctx' is a reusable session/cursor }
+    } // else { cache hit }
     enif_mutex_unlock(conn_handle->cache_mutex);
     return 0;
 }
 
+/**
+ * Return a context to the cache for reuse.
+ */
 static void
-__release_ctx(WterlConnHandle *conn_handle, WterlCtxHandle *ctx)
+__release_ctx(WterlConnHandle *conn_handle, struct wterl_ctx *ctx)
 {
     int i, c;
     WT_CURSOR *cursor;
@@ -375,7 +444,10 @@ __close_all_sessions(WterlConnHandle *conn_handle)
 {
     kbtree_t(cache_entries) *t = conn_handle->cache;
 
-#define traverse_f(p) { kb_del(cache_entries, t, *p); }
+#define traverse_f(p) {				\
+	kb_del(cache_entries, t, *p);		\
+	enif_free(p);				\
+    }
     __kb_traverse(struct cache_entry *, t, traverse_f);
 #undef traverse_f
 }
@@ -1300,7 +1372,7 @@ ASYNC_NIF_DECL(
       return;
     }
 
-    WterlCtxHandle *ctx = NULL;
+    struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
     int rc = __retain_ctx(args->conn_handle, &ctx,
 			  args->conn_handle->session_config,
@@ -1359,7 +1431,7 @@ ASYNC_NIF_DECL(
       return;
     }
 
-    WterlCtxHandle *ctx = NULL;
+    struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
     int rc = __retain_ctx(args->conn_handle, &ctx,
 			  args->conn_handle->session_config,
@@ -1441,7 +1513,7 @@ ASYNC_NIF_DECL(
       return;
     }
 
-    WterlCtxHandle *ctx = NULL;
+    struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
     int rc = __retain_ctx(args->conn_handle, &ctx,
 			  args->conn_handle->session_config,
@@ -2180,6 +2252,8 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
                                                   NULL, flags, NULL);
     wterl_cursor_RESOURCE = enif_open_resource_type(env, NULL, "wterl_cursor_resource",
                                                     NULL, flags, NULL);
+    wterl_ctx_RESOURCE = enif_open_resource_type(env, NULL, "wterl_ctx_resource",
+						 NULL, flags, NULL);
 
     ATOM_ERROR = enif_make_atom(env, "error");
     ATOM_OK = enif_make_atom(env, "ok");
@@ -2265,7 +2339,7 @@ on_unload(ErlNifEnv *env, void *priv_data)
 
     SLIST_FOREACH(conn_handle, &priv->conns, conns) {
 	fifo_q_foreach(cache_entries, conn_handle->recycled_cache_entries, e, {
-            WterlCtxHandle *ctx = e->ctx;
+            struct wterl_ctx *ctx = e->ctx;
 	    ctx->session->close(ctx->session, NULL);
 	});
 	fifo_q_free(cache_entries, conn_handle->recycled_cache_entries);
