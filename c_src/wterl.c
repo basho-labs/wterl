@@ -31,40 +31,37 @@
 #include "async_nif.h"
 #include "kbtree.h"
 #include "queue.h"
-#include "fifo_q.h"
 
 static ErlNifResourceType *wterl_conn_RESOURCE;
-static ErlNifResourceType *wterl_ctx_RESOURCE;
 static ErlNifResourceType *wterl_cursor_RESOURCE;
 
 /* WiredTiger object names*/
 typedef char Uri[128];
 
 struct wterl_ctx {
-    WT_SESSION *session;  // open session
-    WT_CURSOR **cursors; // open cursors, all reset ready to reuse
+    SLIST_ENTRY(wterl_ctx) entries;
     uint64_t sig;
+    uint64_t tstamp;
+    WT_SESSION *session;
+    WT_CURSOR *cursors[]; // Note: must be last in struct
 };
 
 struct cache_entry {
-    struct wterl_ctx *ctx;
     uint64_t sig;
-    uint64_t tstamp;
+    SLIST_HEAD(ctxs, wterl_ctx) contexts;
 };
 
-#define __ctx_sig_cmp(a, b) ((((a)->sig) > ((b)->sig)) - (((a)->sig) < ((b)->sig)))
-KBTREE_INIT(cache_entries, struct cache_entry*, __ctx_sig_cmp);
-DECL_FIFO_QUEUE(cache_entries, struct cache_entry);
+#define __ctx_sig_cmp(a, b) (((a).sig > (b).sig) - ((a).sig < (b).sig))
+KBTREE_INIT(cache_entries, struct cache_entry, __ctx_sig_cmp);
 
 typedef struct wterl_conn {
     WT_CONNECTION *conn;
     const char *session_config;
     ErlNifMutex *cache_mutex;
     kbtree_t(cache_entries) *cache;
-    fifo_t(cache_entries) recycled_cache_entries;
     SLIST_ENTRY(wterl_conn) conns;
     uint64_t histogram[64];
-    uint64_t hits, misses;
+    uint64_t histogram_count;
 } WterlConnHandle;
 
 typedef struct {
@@ -158,9 +155,9 @@ static inline uint32_t __log2(uint64_t x) {
  * ->   0 = no/false, anything else is true
  */
 static int
-__ctx_cache_full(WterlConnHandle *conn)
+__ctx_cache_full(WterlConnHandle *conn_handle)
 {
-    return fifo_q_full(cache_entries, conn->recycled_cache_entries);
+    return kb_size(conn_handle->cache) == ASYNC_NIF_MAX_WORKERS; // TODO:
 }
 
 /**
@@ -174,38 +171,72 @@ __ctx_cache_full(WterlConnHandle *conn)
 static int
 __ctx_cache_evict(WterlConnHandle *conn_handle)
 {
-    uint32_t i;
-    uint64_t mean, now = cpu_clock_ticks();
+    uint32_t num_evicted, i;
+    uint64_t mean, now;
+    struct wterl_ctx *to_free[ASYNC_NIF_MAX_WORKERS];
+
+    now = cpu_clock_ticks();
     kbtree_t(cache_entries) *t = conn_handle->cache;
 
     // Find the mean of the recorded times that items stayed in cache.
+    mean = 0;
     for (i = 0; i < 64; i++)
 	mean += (conn_handle->histogram[i] * i);
     if (mean > 0)
-	mean /= conn_handle->hits;
+	mean /= conn_handle->histogram_count;
 
     // Clear out the histogram and hit/misses
     memset(conn_handle->histogram, 0, sizeof(uint64_t) * 64);
-    conn_handle->hits = 0;
-    conn_handle->misses = 0;
+    conn_handle->histogram_count = 0;
 
-    // Evict anything older than the mean time in queue.
-    i = 0;
+    /*
+     * Evict anything older than the mean time in queue by removing those
+     * items from the lists at the leaf nodes of the tree.
+     */
+    num_evicted = 0;
 #define traverse_f(p)							\
     {									\
-	struct cache_entry *e = *p;					\
-	uint64_t elapsed = e->tstamp - now;				\
-	if (__log2(elapsed) > mean) {					\
-	    kb_del(cache_entries, t, e);				\
-	    e->ctx->session->close(e->ctx->session, NULL);		\
-	    enif_free(e->ctx);						\
-	    fifo_q_put(cache_entries, conn_handle->recycled_cache_entries, e);	\
-	    i++;							\
+	struct cache_entry *e;						\
+	struct wterl_ctx *c;						\
+	e = (struct cache_entry *)p;					\
+	SLIST_FOREACH(c, &e->contexts, entries) {			\
+	    uint64_t elapsed = c->tstamp - now;				\
+	    uint32_t log = __log2(elapsed);				\
+	    if (log > mean) {						\
+		SLIST_REMOVE(&e->contexts, c, wterl_ctx, entries);	\
+		c->session->close(c->session, NULL);			\
+		to_free[num_evicted] = c;				\
+		num_evicted++;						\
+	    }								\
 	}								\
     }
-    __kb_traverse(struct cache_entry *, t, traverse_f);
+    __kb_traverse(struct cache_entry, t, traverse_f);
 #undef traverse_f
-    return i;
+
+    /*
+     * Free up the wterl_ctx we've removed after finishing the loop.
+     */
+    for (i = 0; i < num_evicted; i++) {
+        enif_free(to_free[i]);
+    }
+
+    /*
+     * Walk the tree again looking for empty lists to prune from the
+     * tree.
+     */
+#define traverse_f(p)							\
+    {									\
+        struct cache_entry *e, query;					\
+	e = p;								\
+	query.sig = e->sig;						\
+	if (SLIST_EMPTY(&e->contexts)) {				\
+	    kb_del(cache_entries, t, query);				\
+	}								\
+    }
+    __kb_traverse(struct cache_entry, t, traverse_f);
+#undef traverse_f
+
+    return num_evicted;
 }
 
 /**
@@ -220,24 +251,23 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
 static struct wterl_ctx *
 __ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
 {
-    struct wterl_ctx *p = NULL;
-    struct cache_entry key, *e;
+    struct wterl_ctx *c = NULL;
+    struct cache_entry query, *result;
 
-    key.sig = sig;
-    e = *kb_get(cache_entries, conn_handle->cache, &key);
-    if (e) {
-	// cache hit, remove it from the tree
-        uint64_t elapsed = cpu_clock_ticks() - e->tstamp;
-	kb_del(cache_entries, conn_handle->cache, &key);
-	p = e->ctx;
-	memset(e, 0, sizeof(struct cache_entry));
-	fifo_q_put(cache_entries, conn_handle->recycled_cache_entries, e);
-	conn_handle->hits++;
-        conn_handle->histogram[__log2(elapsed)]++;
-    } else {
-	conn_handle->misses++;
-    }
-    return p;
+    query.sig = sig;
+    result = kb_get(cache_entries, conn_handle->cache, query);
+    if (result && !SLIST_EMPTY(&result->contexts)) {
+	/*
+	 * cache hit:
+	 * remove a context from the list in the tree node
+	 */
+	c = SLIST_FIRST(&result->contexts);
+	SLIST_REMOVE_HEAD(&result->contexts, entries);
+	uint64_t elapsed = cpu_clock_ticks() - c->tstamp;
+	conn_handle->histogram[__log2(elapsed)]++;
+	conn_handle->histogram_count++;
+    } // else { cache miss
+    return c;
 }
 
 /**
@@ -246,20 +276,29 @@ __ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
  * Return an item into the cache, reset the cursors it has open and put it at
  * the front of the LRU.
  */
-static int
+static void
 __ctx_cache_add(WterlConnHandle *conn, struct wterl_ctx *c)
 {
-    struct cache_entry *e;
+    struct cache_entry query, *result;
 
+    /*
+     * Check to see if the cache is full and if so trigger eviction which will
+     * remove the least-recently-used half of the items from the cache.
+     */
     if (__ctx_cache_full(conn))
 	__ctx_cache_evict(conn);
 
-    e = fifo_q_get(cache_entries, conn->recycled_cache_entries);
-    e->ctx = c;
-    e->sig = c->sig;
-    e->tstamp = cpu_clock_ticks();
-    kb_put(cache_entries, conn->cache, e);
-    return 0;
+    c->tstamp = cpu_clock_ticks();
+
+    query.sig = c->sig;
+    result = kb_get(cache_entries, conn->cache, query);
+    if (result == NULL) {
+	SLIST_INIT(&query.contexts); // TODO: should this be on the heap?
+	SLIST_INSERT_HEAD(&query.contexts, c, entries);
+	kb_put(cache_entries, conn->cache, query);
+    } else {
+	SLIST_INSERT_HEAD(&result->contexts, c, entries);
+    }
 }
 
 /**
@@ -322,42 +361,25 @@ __zi(uint32_t p, uint32_t q)
  *                  cursor config pair
  * ->   number of variable arguments processed
  */
-static int
-__ctx_cache_sig_(const char *c, va_list ap, uint64_t *h)
+static uint64_t
+__ctx_cache_sig(const char *c, va_list ap, int count)
 {
     int i = 0;
-
-    if (NULL == c)
-	return 0;
-
-    *h = __str_hash(c);
-
-    while (*c) {
-	*h = __zi((uint32_t)(*h & 0xFFFFFFFF), __str_hash(va_arg(ap, const char *)));
-	*h <<= 1;
-	i++;
-    }
-    return i;
-}
-
-#if 0
-static uint64_t
-__ctx_cache_sig(const char *c, ...)
-{
-    int i;
-    va_list ap;
     uint64_t h;
+    const char *arg;
 
-    if (NULL == c)
-	return 0;
+    if (c)
+	h = __str_hash(c);
+    else
+	h = 0;
 
-    va_start(ap, c);
-    i = __ctx_cache_sig_(c, ap, &h);
-    va_end (ap);
-
-    return i;
+    for (i = 0; i < (2 * count); i++) {
+	arg = va_arg(ap, const char *);
+	if (arg) h = __zi((uint32_t)(h & 0xFFFFFFFF), __str_hash(arg));
+	else     h = __zi((uint32_t)(h & 0xFFFFFFFF), 0);
+    }
+    return h;
 }
-#endif
 
 /**
  * Get a reusable cursor that was opened for a particular worker within its
@@ -365,17 +387,17 @@ __ctx_cache_sig(const char *c, ...)
  */
 static int
 __retain_ctx(WterlConnHandle *conn_handle, struct wterl_ctx **ctx,
-	     const char *session_config, ...)
+	     int count, const char *session_config, ...)
 {
-    int i, count;
+    int i = 0;
     va_list ap;
     uint64_t sig;
-    const char *c;
+    const char *arg;
 
-    c = session_config;
+    arg = session_config;
     va_start(ap, session_config);
-    count = __ctx_cache_sig_(session_config, ap, &sig);
-    va_end (ap);
+    sig = __ctx_cache_sig(session_config, ap, count);
+    va_end(ap);
 
     enif_mutex_lock(conn_handle->cache_mutex);
     (*ctx) = __ctx_cache_find(conn_handle, sig);
@@ -386,9 +408,8 @@ __retain_ctx(WterlConnHandle *conn_handle, struct wterl_ctx **ctx,
 	int rc = conn->open_session(conn, NULL, session_config, &session);
 	if (rc != 0)
 	    return rc;
-	size_t s = sizeof(struct wterl_ctx) + ((count / 2) * sizeof(WT_CURSOR*));
-	// TODO: *ctx = enif_alloc_resource(wterl_ctx_RESOURCE, s);
-	*ctx = enif_alloc(s);
+	size_t s = sizeof(struct wterl_ctx) + (count * sizeof(WT_CURSOR*));
+	*ctx = enif_alloc(s); // TODO: enif_alloc_resource()
 	if (*ctx == NULL) {
 	    session->close(session, NULL);
 	    return ENOMEM;
@@ -396,14 +417,13 @@ __retain_ctx(WterlConnHandle *conn_handle, struct wterl_ctx **ctx,
 	memset(*ctx, 0, s);
 	(*ctx)->sig = sig;
 	(*ctx)->session = session;
-	WT_CURSOR **cursors = (*ctx)->cursors;
-	session_config = c;
+	session_config = arg;
 	va_start(ap, session_config);
-	for (i = 0; i < (count / 2); i++) {
+	for (i = 0; i < count; i++) {
 	    const char *uri = va_arg(ap, const char *);
 	    const char *config = va_arg(ap, const char *);
 	    // TODO: error when uri or config is NULL
-	    rc = session->open_cursor(session, uri, NULL, config, &cursors[i]);
+	    rc = session->open_cursor(session, uri, NULL, config, &(*ctx)->cursors[i]);
 	    if (rc != 0) {
 		session->close(session, NULL); // this will free the cursors too
 		return rc;
@@ -424,7 +444,7 @@ __release_ctx(WterlConnHandle *conn_handle, struct wterl_ctx *ctx)
     int i, c;
     WT_CURSOR *cursor;
 
-    c = sizeof(ctx->cursors) / sizeof(ctx->cursors[0]);
+    c = sizeof((WT_CURSOR**)ctx->cursors) / sizeof(ctx->cursors[0]);
     for (i = 0; i < c; i++) {
 	cursor = ctx->cursors[i];
 	cursor->reset(cursor);
@@ -442,13 +462,45 @@ __release_ctx(WterlConnHandle *conn_handle, struct wterl_ctx *ctx)
 void
 __close_all_sessions(WterlConnHandle *conn_handle)
 {
+    int i, num_closed = 0;
+    struct wterl_ctx *to_free[ASYNC_NIF_MAX_WORKERS];
     kbtree_t(cache_entries) *t = conn_handle->cache;
 
-#define traverse_f(p) {				\
-	kb_del(cache_entries, t, *p);		\
-	enif_free(p);				\
+#define traverse_f(p)							\
+    {									\
+        struct cache_entry *e;						\
+	struct wterl_ctx *c;						\
+	e = (struct cache_entry *)p;					\
+	SLIST_FOREACH(c, &e->contexts, entries) {			\
+	    SLIST_REMOVE(&e->contexts, c, wterl_ctx, entries);		\
+	    c->session->close(c->session, NULL);			\
+	    to_free[num_closed] = c;					\
+	    num_closed++;						\
+	}								\
     }
     __kb_traverse(struct cache_entry *, t, traverse_f);
+#undef traverse_f
+
+    /*
+     * Free up the wterl_ctx we've removed after finishing the loop.
+     */
+    for (i = 0; i < num_closed; i++) {
+        enif_free(to_free[i]);
+    }
+
+    /*
+     * Walk the tree again to prune all the empty lists from the tree.
+     */
+#define traverse_f(p)							\
+    {									\
+        struct cache_entry *e, query;					\
+	e = (struct cache_entry *)p;					\
+	query.sig = e->sig;						\
+	if (SLIST_EMPTY(&e->contexts)) {				\
+	    kb_del(cache_entries, t, query);				\
+	}								\
+    }
+    __kb_traverse(struct cache_entry, t, traverse_f);
 #undef traverse_f
 }
 
@@ -678,7 +730,6 @@ ASYNC_NIF_DECL(
 
       /* Init tree which manages the cache of session/cursor(s) */
       conn_handle->cache = kb_init(cache_entries, ASYNC_NIF_MAX_WORKERS); // TODO: size
-      conn_handle->recycled_cache_entries = fifo_q_new(cache_entries, ASYNC_NIF_MAX_WORKERS);
 
       /* Keep track of open connections so as to free when unload/reload/etc.
          are called. */
@@ -1374,7 +1425,7 @@ ASYNC_NIF_DECL(
 
     struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
-    int rc = __retain_ctx(args->conn_handle, &ctx,
+    int rc = __retain_ctx(args->conn_handle, &ctx, 1,
 			  args->conn_handle->session_config,
 			  args->uri, "overwrite,raw");
     if (rc != 0) {
@@ -1433,7 +1484,7 @@ ASYNC_NIF_DECL(
 
     struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
-    int rc = __retain_ctx(args->conn_handle, &ctx,
+    int rc = __retain_ctx(args->conn_handle, &ctx, 1,
 			  args->conn_handle->session_config,
 			  args->uri, "overwrite,raw");
     if (rc != 0) {
@@ -1515,7 +1566,7 @@ ASYNC_NIF_DECL(
 
     struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
-    int rc = __retain_ctx(args->conn_handle, &ctx,
+    int rc = __retain_ctx(args->conn_handle, &ctx, 1,
 			  args->conn_handle->session_config,
 			  args->uri, "overwrite,raw");
     if (rc != 0) {
@@ -2252,8 +2303,6 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
                                                   NULL, flags, NULL);
     wterl_cursor_RESOURCE = enif_open_resource_type(env, NULL, "wterl_cursor_resource",
                                                     NULL, flags, NULL);
-    wterl_ctx_RESOURCE = enif_open_resource_type(env, NULL, "wterl_ctx_resource",
-						 NULL, flags, NULL);
 
     ATOM_ERROR = enif_make_atom(env, "error");
     ATOM_OK = enif_make_atom(env, "ok");
@@ -2325,7 +2374,6 @@ on_unload(ErlNifEnv *env, void *priv_data)
 {
     struct wterl_priv_data *priv = (struct wterl_priv_data *)priv_data;
     WterlConnHandle *conn_handle;
-    struct cache_entry *e;
 
     enif_mutex_lock(priv->conns_mutex);
 
@@ -2338,12 +2386,10 @@ on_unload(ErlNifEnv *env, void *priv_data)
     ASYNC_NIF_UNLOAD(wterl, env, priv->async_nif_priv);
 
     SLIST_FOREACH(conn_handle, &priv->conns, conns) {
-	fifo_q_foreach(cache_entries, conn_handle->recycled_cache_entries, e, {
-            struct wterl_ctx *ctx = e->ctx;
-	    ctx->session->close(ctx->session, NULL);
-	});
-	fifo_q_free(cache_entries, conn_handle->recycled_cache_entries);
+	__close_all_sessions(conn_handle);
+	conn_handle->conn->close(conn_handle->conn, NULL);
 	kb_destroy(cache_entries, conn_handle->cache);
+	enif_free((void*)conn_handle->session_config);
 	enif_mutex_unlock(conn_handle->cache_mutex);
 	enif_mutex_destroy(conn_handle->cache_mutex);
     }

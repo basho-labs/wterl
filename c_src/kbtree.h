@@ -1,12 +1,11 @@
 /*-
  * Copyright 1997-1999, 2001, John-Mark Gurney.
- *           2008, Attractive Chaos <attractivechaos@aol.co.uk>
- *
- * All rights reserved.
+ *           2008-2009, Attractive Chaos <attractor@live.co.uk>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright
@@ -25,9 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-/* Reference: http://attractivechaos.awardspace.com/kbtree.h
-              http://attractivechaos.awardspace.com/kbtree.h.html */
 
 #ifndef __AC_KBTREE_H
 #define __AC_KBTREE_H
@@ -56,14 +52,14 @@ typedef struct {
 	{																	\
 		kbtree_##name##_t *b;											\
 		b = (kbtree_##name##_t*)calloc(1, sizeof(kbtree_##name##_t));	\
-		b->t = ((size - 4 - sizeof(void*)) / (sizeof(void*) + sizeof(key_t)) + 1) / 2; \
+		b->t = ((size - 4 - sizeof(void*)) / (sizeof(void*) + sizeof(key_t)) + 1) >> 1; \
 		if (b->t < 2) {													\
 			free(b); return 0;											\
 		}																\
 		b->n = 2 * b->t - 1;											\
 		b->off_ptr = 4 + b->n * sizeof(key_t);							\
-		b->ilen = (4 + sizeof(void*) + b->n * (sizeof(void*) + sizeof(key_t)) + 3) / 4 * 4; \
-		b->elen = (b->off_ptr + 3) / 4 * 4;								\
+		b->ilen = (4 + sizeof(void*) + b->n * (sizeof(void*) + sizeof(key_t)) + 3) >> 2 << 2; \
+		b->elen = (b->off_ptr + 3) >> 2 << 2;							\
 		b->root = (kbnode_t*)calloc(1, b->ilen);						\
 		++b->n_nodes;													\
 		return b;														\
@@ -71,7 +67,7 @@ typedef struct {
 
 #define __kb_destroy(b) do {											\
 		int i, max = 8;													\
-		kbnode_t *x, **top, **stack;									\
+		kbnode_t *x, **top, **stack = 0;								\
 		if (b) {														\
 			top = stack = (kbnode_t**)calloc(max, sizeof(kbnode_t*));	\
 			*top++ = (b)->root;											\
@@ -93,10 +89,17 @@ typedef struct {
 		free(b); free(stack);											\
 	} while (0)
 
+#define __kb_get_first(key_t, b, ret) do {	\
+		kbnode_t *__x = (b)->root;			\
+		while (__KB_PTR(b, __x)[0] != 0)	\
+			__x = __KB_PTR(b, __x)[0];		\
+		(ret) = __KB_KEY(key_t, __x)[0];	\
+	} while (0)
+
 #define __KB_GET_AUX0(name, key_t, __cmp)								\
 	static inline int __kb_get_aux_##name(const kbnode_t * __restrict x, const key_t * __restrict k, int *r) \
 	{																	\
-		int tr, *rr, begin, end, n = x->n / 2;							\
+		int tr, *rr, begin, end, n = x->n >> 1;							\
 		if (x->n == 0) return -1;										\
 		if (__cmp(*k, __KB_KEY(key_t, x)[n]) < 0) {						\
 			begin = 0; end = n;											\
@@ -114,7 +117,7 @@ typedef struct {
 		if (x->n == 0) return -1;										\
 		rr = r? r : &tr;												\
 		while (begin < end) {											\
-			int mid = (begin + end) / 2;								\
+			int mid = (begin + end) >> 1;								\
 			if (__cmp(__KB_KEY(key_t, x)[mid], *k) < 0) begin = mid + 1; \
 			else end = mid;												\
 		}																\
@@ -189,7 +192,7 @@ typedef struct {
 			i = __kb_getp_aux_##name(x, k, 0);							\
 			if (i != x->n - 1)											\
 				memmove(__KB_KEY(key_t, x) + i + 2, __KB_KEY(key_t, x) + i + 1, (x->n - i - 1) * sizeof(key_t)); \
-			__KB_KEY(key_t, x)[i + 1] = (key_t)*k;		\
+			__KB_KEY(key_t, x)[i + 1] = *k;								\
 			++x->n;														\
 		} else {														\
 			i = __kb_getp_aux_##name(x, k, 0) + 1;						\
@@ -227,7 +230,7 @@ typedef struct {
 		int yn, zn, i, r = 0;											\
 		kbnode_t *xp, *y, *z;											\
 		key_t kp;														\
-		if (x == 0) return (key_t)*k;				\
+		if (x == 0) return *k;											\
 		if (s) { /* s can only be 0, 1 or 2 */							\
 			r = x->is_internal == 0? 0 : s == 1? 1 : -1;				\
 			i = s == 1? x->n - 1 : -1;									\
@@ -252,7 +255,7 @@ typedef struct {
 				return kp;												\
 			} else if (yn == b->t - 1 && zn == b->t - 1) {				\
 				y = __KB_PTR(b, x)[i]; z = __KB_PTR(b, x)[i + 1];		\
-				__KB_KEY(key_t, y)[y->n++] = (key_t)*k;	\
+				__KB_KEY(key_t, y)[y->n++] = *k;						\
 				memmove(__KB_KEY(key_t, y) + y->n, __KB_KEY(key_t, z), z->n * sizeof(key_t)); \
 				if (y->is_internal) memmove(__KB_PTR(b, y) + y->n, __KB_PTR(b, z), (z->n + 1) * sizeof(void*)); \
 				y->n += z->n;											\
@@ -375,7 +378,130 @@ typedef struct {
 
 #define kb_size(b) ((b)->n_keys)
 
-#define kb_generic_cmp(a, b) (((a) > (b)) - ((a) < (b)))
+#define kb_generic_cmp(a, b) (((b) < (a)) - ((a) < (b)))
 #define kb_str_cmp(a, b) strcmp(a, b)
 
+#endif
+
+#ifdef TEST
+#include <stdio.h>
+#include <assert.h>
+#include <time.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef const char *str_t;
+
+#include "kbtree.h"
+
+typedef struct {
+        unsigned key;
+        char *value;
+} intmap_t;
+
+#define __intcmp(a, b) (((a).key > (b).key) - ((a).key < (b).key))
+
+KBTREE_INIT(int, uint32_t, kb_generic_cmp)
+KBTREE_INIT(str, str_t, kb_str_cmp)
+KBTREE_INIT(intmap, intmap_t, __intcmp);
+
+static int data_size = 5000000;
+static unsigned *int_data;
+static char **str_data;
+static intmap_t *intmap_data;
+
+void kb_init_data()
+{
+	int i;
+	char buf[256];
+	printf("--- generating data... ");
+	srand48(11);
+	int_data = (unsigned*)calloc(data_size, sizeof(unsigned));
+	str_data = (char**)calloc(data_size, sizeof(char*));
+	intmap_data = (intmap_t*)calloc(data_size, sizeof(intmap_t));
+	for (i = 0; i < data_size; ++i) {
+		int_data[i] = (unsigned)(data_size * drand48() / 4) * 271828183u;
+		sprintf(buf, "%x", int_data[i]);
+		str_data[i] = strdup(buf);
+		intmap_data[i].key = i;
+		intmap_data[i].value = str_data[i];
+	}
+	printf("done!\n");
+}
+void kb_destroy_data()
+{
+	int i;
+	for (i = 0; i < data_size; ++i) free(str_data[i]);
+	free(str_data); free(int_data);
+}
+void kb_tree_intmap()
+{
+        int i;
+	intmap_t *data = intmap_data;
+        kbtree_t(intmap) *h;
+        h = kb_init(intmap, KB_DEFAULT_SIZE);
+	for (i = 0; i < data_size; ++i) {
+		if (kb_get(intmap, h, data[i]) == 0) kb_put(intmap, h, data[i]);
+		else kb_del(intmap, h, data[i]);
+	}
+	printf("[kb_tree_intmap] size: %d\n", kb_size(h));
+	__kb_destroy(h);
+}
+void kb_tree_int()
+{
+	int i;
+	unsigned *data = int_data;
+	uint32_t *l, *u;
+	kbtree_t(int) *h;
+
+	h = kb_init(int, KB_DEFAULT_SIZE);
+	for (i = 0; i < data_size; ++i) {
+		if (kb_get(int, h, data[i]) == 0) kb_put(int, h, data[i]);
+		else kb_del(int, h, data[i]);
+	}
+	printf("[kb_tree_int] size: %d\n", kb_size(h));
+	if (1) {
+		int cnt = 0;
+		uint32_t x, y;
+		kb_interval(int, h, 2174625464u, &l, &u);
+		printf("interval for 2174625464: (%u, %u)\n", l? *l : 0, u? *u : 0);
+#define traverse_f(p) { if (cnt == 0) y = *p; ++cnt; }
+		__kb_traverse(uint32_t, h, traverse_f);
+		__kb_get_first(uint32_t, h, x);
+		printf("# of elements from traversal: %d\n", cnt);
+		printf("first element: %d == %d\n", x, y);
+	}
+	__kb_destroy(h);
+}
+void kb_tree_str()
+{
+	int i;
+	char **data = str_data;
+	kbtree_t(str) *h;
+
+	h = kb_init(str, KB_DEFAULT_SIZE);
+	for (i = 0; i < data_size; ++i) {
+		if (kb_get(str, h, data[i]) == 0) kb_put(str, h, data[i]);
+		else kb_del(str, h, data[i]);
+	}
+	printf("[kb_tree_int] size: %d\n", kb_size(h));
+	__kb_destroy(h);
+}
+void kb_timing(void (*f)(void))
+{
+	clock_t t = clock();
+	(*f)();
+	printf("[kb_timing] %.3lf sec\n", (double)(clock() - t) / CLOCKS_PER_SEC);
+}
+int main(int argc, char *argv[])
+{
+	if (argc > 1) data_size = atoi(argv[1]);
+	kb_init_data();
+	kb_timing(kb_tree_int);
+	kb_timing(kb_tree_str);
+	kb_timing(kb_tree_intmap);
+	kb_destroy_data();
+	return 0;
+}
 #endif
