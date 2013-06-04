@@ -664,7 +664,7 @@ various_maintenance_test_() ->
      fun () ->
              {ok, CWD} = file:get_cwd(),
              ?assertMatch(ok, filelib:ensure_dir(filename:join([?TEST_DATA_DIR, "x"]))),
-             {ok, ConnRef} = connection_open(filename:join([CWD, ?TEST_DATA_DIR]), []),
+             {ok, ConnRef} = connection_open(filename:join([CWD, ?TEST_DATA_DIR]), [{create,true}]),
              ConnRef
      end,
      fun (ConnRef) ->

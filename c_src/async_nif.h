@@ -34,7 +34,7 @@ extern "C" {
 #define UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 1024
+#define ASYNC_NIF_MAX_WORKERS 512
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 #define ASYNC_NIF_MAX_QUEUED_REQS 1000 * ASYNC_NIF_MAX_WORKERS
 
@@ -278,8 +278,8 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
      performing the request). */
   ERL_NIF_TERM reply = enif_make_tuple2(req->env, enif_make_atom(req->env, "ok"),
                                         enif_make_atom(req->env, "enqueued"));
-  enif_mutex_unlock(q->reqs_mutex);
   enif_cond_signal(q->reqs_cnd);
+  enif_mutex_unlock(q->reqs_mutex);
   return reply;
 }
 
@@ -314,11 +314,11 @@ async_nif_worker_fn(void *arg)
       /* At this point the next req is ours to process and we hold the
          reqs_mutex lock.  Take the request off the queue. */
       req = fifo_q_get(reqs, q->reqs);
-      enif_mutex_unlock(q->reqs_mutex);
 
       /* Ensure that there is at least one other worker thread watching this
          queue. */
       enif_cond_signal(q->reqs_cnd);
+      enif_mutex_unlock(q->reqs_mutex);
 
       /* Perform the work. */
       req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);

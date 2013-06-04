@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-
+#define DEBUG 1
 #if !(__STDC_VERSION__ >= 199901L || defined(__GNUC__))
 # undef  DEBUG
 # define DEBUG		0
