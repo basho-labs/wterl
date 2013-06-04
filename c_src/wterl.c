@@ -189,6 +189,7 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
      * Evict anything older than the mean time in queue by removing those
      * items from the lists stored in the tree.
      */
+    num_evicted = 0;
     for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
 	if (kh_exist(h, itr)) {
 	    e = kh_val(h, itr);
@@ -277,6 +278,7 @@ __ctx_cache_add(WterlConnHandle *conn_handle, struct wterl_ctx *c)
     itr = kh_get(cache_entries, h, c->sig);
     if (itr == kh_end(h)) {
 	e = enif_alloc(sizeof(struct cache_entry)); // TODO: enomem
+	memset(e, 0, sizeof(struct cache_entry));
 	SLIST_INIT(&e->contexts);
         itr = kh_put(cache_entries, h, c->sig, &itr_status);
         kh_value(h, itr) = e;
@@ -468,9 +470,11 @@ __close_all_sessions(WterlConnHandle *conn_handle)
 
     for (i = 0; i < ASYNC_NIF_MAX_WORKERS; i++) {
 	c = conn_handle->last_ctx_used[i];
-	c->session->close(c->session, NULL);
-	enif_free(c);
-	conn_handle->last_ctx_used[i] = NULL;
+	if (c) {
+	    c->session->close(c->session, NULL);
+	    enif_free(c);
+	    conn_handle->last_ctx_used[i] = NULL;
+	}
     }
     khiter_t itr;
     for (itr = kh_begin(h); itr != kh_end(h); ++itr) {
@@ -688,10 +692,11 @@ ASYNC_NIF_DECL(
 
     int rc = wiredtiger_open(args->homedir,
                              (WT_EVENT_HANDLER*)&args->priv->eh.handlers,
-                             config.data[0] != 0 ? (const char*)config.data : NULL,
-                             &conn);
+                             (config.size > 1) ? (const char *)config.data : NULL,
+			     &conn);
     if (rc == 0) {
       WterlConnHandle *conn_handle = enif_alloc_resource(wterl_conn_RESOURCE, sizeof(WterlConnHandle));
+      memset(conn_handle, 0, sizeof(WterlConnHandle));
       if (!conn_handle) {
           ASYNC_NIF_REPLY(__strerror_term(env, ENOMEM));
           return;
@@ -1134,7 +1139,6 @@ ASYNC_NIF_DECL(
     }
     args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[4]);
     enif_keep_resource((void*)args->conn_handle);
-    affinity = __str_hash(args->uri);
   },
   { // work
 
@@ -1603,7 +1607,6 @@ ASYNC_NIF_DECL(
     }
     args->config = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->conn_handle);
-    affinity = __str_hash(args->uri);
   },
   { // work
 
@@ -1637,6 +1640,7 @@ ASYNC_NIF_DECL(
       ASYNC_NIF_REPLY(__strerror_term(env, ENOMEM));
       return;
     }
+    memset(cursor_handle, 0, sizeof(WterlCursorHandle));
     cursor_handle->session = session;
     cursor_handle->cursor = cursor;
     ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);

@@ -96,7 +96,8 @@ nif_stub_error(Line) ->
 -spec init() -> ok | {error, any()}.
 init() ->
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-                    [{wterl_vsn, "a1459ce"}, {wiredtiger_vsn, "1.5.2-2-g8f2685b"}]).
+           [{wterl_vsn, "f1b7d8322da904a3385b97456819afd63ff41afe"},
+	    {wiredtiger_vsn, "1.6.1-a06b59e47db7b120575049bd7d6314df53e78e54"}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
