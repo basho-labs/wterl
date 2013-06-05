@@ -256,12 +256,14 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
           enif_mutex_unlock(q->reqs_mutex);
           return 0;
       }
-      double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
-      double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
-      if (fifo_q_full(reqs, q->reqs) || await_inthisq > await) {
-          enif_mutex_unlock(q->reqs_mutex);
-          qid = (qid + 1) % async_nif->num_queues;
-          q = &async_nif->queues[qid];
+      if (fifo_q_size(reqs, q->reqs) > async_nif->num_queues) {
+	  double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
+	  double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
+	  if (fifo_q_full(reqs, q->reqs) || await_inthisq > await) {
+	      enif_mutex_unlock(q->reqs_mutex);
+	      qid = (qid + 1) % async_nif->num_queues;
+	      q = &async_nif->queues[qid];
+	  }
       } else {
           break;
       }

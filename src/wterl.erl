@@ -455,6 +455,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
     [{block_compressor, {string, quoted}},
      {cache_size, string},
      {checkpoint, config},
+     {checksum, string},
      {create, bool},
      {direct_io, list},
      {drop, list},

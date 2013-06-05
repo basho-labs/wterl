@@ -45,12 +45,14 @@ static inline uint64_t cpu_clock_ticks()
 {
      uint32_t lo, hi;
      __asm__ __volatile__ (
-          "xorl %%eax, %%eax\n"
-          "cpuid\n"
-          "rdtsc\n"
-          : "=a" (lo), "=d" (hi)
-          :
-          : "%ebx", "%ecx" );
+	 "; Flush the pipeline"
+	 "XORL %%eax, %%eax\n"
+	 "CPUID\n"
+	 "; Get RDTSC counter in edx:eax"
+	 "RDTSC\n"
+	 : "=a" (lo), "=d" (hi)
+	 :
+	 : "%ebx", "%ecx" );
      return (uint64_t)hi << 32 | lo;
 }
 
