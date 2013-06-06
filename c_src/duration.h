@@ -13,6 +13,28 @@
 #include <time.h>
 #include <sys/timeb.h>
 
+#ifdef __MACH__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif
+
+
+void current_utc_time(struct timespec *ts)
+{
+#ifdef __MACH__ // OS X does not have clock_gettime, use clock_get_time
+    clock_serv_t cclock;
+    mach_timespec_t mts;
+    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+    clock_get_time(cclock, &mts);
+    mach_port_deallocate(mach_task_self(), cclock);
+    ts->tv_sec = mts.tv_sec;
+    ts->tv_nsec = mts.tv_nsec;
+#else
+    clock_gettime(CLOCK_REALTIME, ts);
+#endif
+
+}
+
 typedef enum { ns = 0, mcs, ms, s } time_scale;
 struct scale_time {
      const char *abbreviation;
@@ -28,9 +50,9 @@ static const struct scale_time scale[] = {
 static uint64_t ts(time_scale unit)
 {
     struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+    current_utc_time(&ts);
     return (((uint64_t)ts.tv_sec * scale[unit].mul) +
-            ((uint64_t)ts.tv_nsec / scale[unit].div));
+	    ((uint64_t)ts.tv_nsec / scale[unit].div));
 }
 
 #if defined(__i386__) || defined(__x86_64__)
@@ -45,11 +67,9 @@ static inline uint64_t cpu_clock_ticks()
 {
      uint32_t lo, hi;
      __asm__ __volatile__ (
-	 "; Flush the pipeline"
-	 "XORL %%eax, %%eax\n"
+	 "XORL %%eax, %%eax\n" /* Flush the pipeline */
 	 "CPUID\n"
-	 "; Get RDTSC counter in edx:eax"
-	 "RDTSC\n"
+	 "RDTSC\n"             /* Get RDTSC counter in edx:eax */
 	 : "=a" (lo), "=d" (hi)
 	 :
 	 : "%ebx", "%ecx" );
@@ -90,14 +110,14 @@ static inline uint64_t elapsed(duration_t *d)
 
 #define ELAPSED_DURING(result, resolution, block)       \
      do {                                               \
-          DURATION(__x, resolution);                    \
-          do block while(0);                            \
-          *result = elapsed(&__x);                      \
+	  DURATION(__x, resolution);                    \
+	  do block while(0);                            \
+	  *result = elapsed(&__x);                      \
      } while(0);
 
 #define CYCLES_DURING(result, block)                    \
      do {                                               \
-         uint64_t __begin = cpu_clock_ticks();          \
-         do block while(0);                             \
-         *result = cpu_clock_ticks() - __begin;         \
+	 uint64_t __begin = cpu_clock_ticks();          \
+	 do block while(0);                             \
+	 *result = cpu_clock_ticks() - __begin;         \
      } while(0);

@@ -613,9 +613,9 @@ __wterl_progress_handler(WT_EVENT_HANDLER *handler, const char *operation, uint6
                       enif_make_int64(msg_env, counter)));
         enif_clear_env(msg_env);
         if (!enif_send(NULL, to_pid, msg_env, msg))
-            fprintf(stderr, "[%ld] %s\n", counter, operation);
+            fprintf(stderr, "[%llu] %s\n", counter, operation);
     } else {
-        rc = (printf("[%ld] %s\n", counter, operation) >= 0 ? 0 : EIO);
+        rc = (printf("[%llu] %s\n", counter, operation) >= 0 ? 0 : EIO);
     }
     enif_mutex_unlock(eh->progress_mutex);
     return rc;
