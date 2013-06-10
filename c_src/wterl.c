@@ -348,7 +348,7 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
 
     do {
         c = conn_handle->mru_ctx[worker_id];
-        if (CASPO(&conn_handle->mru_ctx[worker_id], c, NULL) != c) {
+        if (CASPO(&conn_handle->mru_ctx[worker_id], c, NULL) == c) {
             if (c == NULL) {
                 // mru miss:
                 *ctx = NULL;
