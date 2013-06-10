@@ -53,6 +53,12 @@ extern "C" {
 } while (0)
 #endif
 
+#ifdef __APPLE__
+#define PRIuint64(x) (x)
+#else
+#define PRIuint64(x) (unsigned long long)(x)
+#endif
+
 #if defined(__cplusplus)
 }
 #endif

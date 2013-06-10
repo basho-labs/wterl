@@ -96,8 +96,8 @@ nif_stub_error(Line) ->
 -spec init() -> ok | {error, any()}.
 init() ->
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-           [{wterl_vsn, "f1b7d8322da904a3385b97456819afd63ff41afe"},
-	    {wiredtiger_vsn, "1.6.1-a06b59e47db7b120575049bd7d6314df53e78e54"}]).
+           [{wterl_vsn, "b2c0b65"},
+	    {wiredtiger_vsn, "1.6.1-87-gbe6742a"}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -618,7 +618,7 @@ various_online_test_() ->
                 end},
                {"truncate entire table",
                 fun() ->
-                        ?assertMatch(ok, truncate(ConnRef, "table:test")),
+			?assertMatch(ok, truncate(ConnRef, "table:test")),
                         ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
                 end},
                %% {"truncate range [<<b>>..last], ensure value outside range is found after",
@@ -863,7 +863,7 @@ prop_put_delete() ->
                      DataDir = "test/wterl.putdelete.qc",
                      Table = "table:eqc",
                      {ok, CWD} = file:get_cwd(),
-                     rmdir(filename:join([CWD, DataDir])), % ?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
+                     rmdir:path(filename:join([CWD, DataDir])), % ?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
                      ok = filelib:ensure_dir(filename:join([DataDir, "x"])),
                      {ok, ConnRef} = wterl:connection_open(DataDir, [{create,true}]),
                      try

@@ -47,6 +47,7 @@ struct async_nif_req_entry {
   void *args;
   void (*fn_work)(ErlNifEnv*, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *);
   void (*fn_post)(void *);
+  const char *func;
 };
 DECL_FIFO_QUEUE(reqs, struct async_nif_req_entry);
 
@@ -92,7 +93,7 @@ struct async_nif_state {
     struct decl ## _args *args = &on_stack_args;                        \
     struct decl ## _args *copy_of_args;                                 \
     struct async_nif_req_entry *req = NULL;                             \
-    unsigned int affinity = 0;						\
+    unsigned int affinity = 0;                                          \
     ErlNifEnv *new_env = NULL;                                          \
     /* argv[0] is a ref used for selective recv */                      \
     const ERL_NIF_TERM *argv = argv_in + 1;                             \
@@ -104,13 +105,16 @@ struct async_nif_state {
                               enif_make_atom(env, "shutdown"));         \
     req = async_nif_reuse_req(async_nif);                               \
     new_env = req->env;                                                 \
-    if (!req)                                                           \
-      return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
-                              enif_make_atom(env, "eagain"));           \
+    if (!req) {                                                         \
+        async_nif_recycle_req(req, async_nif);                          \
+        return enif_make_tuple2(env, enif_make_atom(env, "error"),      \
+                                enif_make_atom(env, "eagain"));         \
+    }                                                                   \
     do pre_block while(0);                                              \
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_ ## decl (args);                                          \
+      async_nif_recycle_req(req, async_nif);                            \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "enomem"));           \
     }                                                                   \
@@ -120,12 +124,14 @@ struct async_nif_state {
     req->args = (void*)copy_of_args;                                    \
     req->fn_work = (void (*)(ErlNifEnv *, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *))fn_work_ ## decl ; \
     req->fn_post = (void (*)(void *))fn_post_ ## decl;                 \
+    req->func = __func__;                                              \
     int h = -1;                                                        \
     if (affinity)                                                      \
         h = affinity % async_nif->num_queues;                          \
     ERL_NIF_TERM reply = async_nif_enqueue_req(async_nif, req, h);     \
     if (!reply) {                                                      \
       fn_post_ ## decl (args);                                         \
+      async_nif_recycle_req(req, async_nif);                           \
       enif_free(copy_of_args);                                         \
       return enif_make_tuple2(env, enif_make_atom(env, "error"),       \
                               enif_make_atom(env, "shutdown"));        \
@@ -212,8 +218,13 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
 void
 async_nif_recycle_req(struct async_nif_req_entry *req, struct async_nif_state *async_nif)
 {
+    ErlNifEnv *env = NULL;
     STAT_TOCK(async_nif, qwait);
     enif_mutex_lock(async_nif->recycled_req_mutex);
+    env = req->env;
+    enif_clear_env(env);
+    memset(req, 0, sizeof(struct async_nif_req_entry));
+    req->env = env;
     fifo_q_put(reqs, async_nif->recycled_reqs, req);
     enif_mutex_unlock(async_nif->recycled_req_mutex);
 }
@@ -257,13 +268,13 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
           return 0;
       }
       if (fifo_q_size(reqs, q->reqs) > async_nif->num_queues) {
-	  double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
-	  double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
-	  if (fifo_q_full(reqs, q->reqs) || await_inthisq > await) {
-	      enif_mutex_unlock(q->reqs_mutex);
-	      qid = (qid + 1) % async_nif->num_queues;
-	      q = &async_nif->queues[qid];
-	  }
+          double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
+          double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
+          if (fifo_q_full(reqs, q->reqs) || await_inthisq > await) {
+              enif_mutex_unlock(q->reqs_mutex);
+              qid = (qid + 1) % async_nif->num_queues;
+              q = &async_nif->queues[qid];
+          }
       } else {
           break;
       }
@@ -335,7 +346,6 @@ async_nif_worker_fn(void *arg)
       req->fn_post = 0;
       enif_free(req->args);
       req->args = NULL;
-      enif_clear_env(req->env);
       async_nif_recycle_req(req, async_nif);
       req = NULL;
     }

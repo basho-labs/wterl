@@ -52,7 +52,7 @@ static uint64_t ts(time_scale unit)
     struct timespec ts;
     current_utc_time(&ts);
     return (((uint64_t)ts.tv_sec * scale[unit].mul) +
-	    ((uint64_t)ts.tv_nsec / scale[unit].div));
+            ((uint64_t)ts.tv_nsec / scale[unit].div));
 }
 
 #if defined(__i386__) || defined(__x86_64__)
@@ -67,12 +67,12 @@ static inline uint64_t cpu_clock_ticks()
 {
      uint32_t lo, hi;
      __asm__ __volatile__ (
-	 "XORL %%eax, %%eax\n" /* Flush the pipeline */
-	 "CPUID\n"
-	 "RDTSC\n"             /* Get RDTSC counter in edx:eax */
-	 : "=a" (lo), "=d" (hi)
-	 :
-	 : "%ebx", "%ecx" );
+         "XORL %%eax, %%eax\n" /* Flush the pipeline */
+         "CPUID\n"
+         "RDTSC\n"             /* Get RDTSC counter in edx:eax */
+         : "=a" (lo), "=d" (hi)
+         :
+         : "%ebx", "%ecx" );
      return (uint64_t)hi << 32 | lo;
 }
 
@@ -110,14 +110,14 @@ static inline uint64_t elapsed(duration_t *d)
 
 #define ELAPSED_DURING(result, resolution, block)       \
      do {                                               \
-	  DURATION(__x, resolution);                    \
-	  do block while(0);                            \
-	  *result = elapsed(&__x);                      \
+          DURATION(__x, resolution);                    \
+          do block while(0);                            \
+          *result = elapsed(&__x);                      \
      } while(0);
 
 #define CYCLES_DURING(result, block)                    \
      do {                                               \
-	 uint64_t __begin = cpu_clock_ticks();          \
-	 do block while(0);                             \
-	 *result = cpu_clock_ticks() - __begin;         \
+         uint64_t __begin = cpu_clock_ticks();          \
+         do block while(0);                             \
+         *result = cpu_clock_ticks() - __begin;         \
      } while(0);

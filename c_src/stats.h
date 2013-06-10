@@ -152,7 +152,7 @@ static unsigned int __log2_64(uint64_t x) {
              fprintf(stderr, "     ns        μs        ms        s         ks\n"); \
              fprintf(stderr, "min: ");                                  \
              if (s->min < 1000)                                         \
-                 fprintf(stderr, "%llu (ns)", s->min);                  \
+                 fprintf(stderr, "%llu (ns)", PRIuint64(s->min));       \
              else if (s->min < 1000000)                                 \
                  fprintf(stderr, "%.2f (μs)", s->min / 1000.0);         \
              else if (s->min < 1000000000)                              \
@@ -161,7 +161,7 @@ static unsigned int __log2_64(uint64_t x) {
                  fprintf(stderr, "%.2f (s)", s->min / 1000000000.0);    \
              fprintf(stderr, "  max: ");                                \
              if (s->max < 1000)                                         \
-                 fprintf(stderr, "%llu (ns)", s->max);                  \
+                 fprintf(stderr, "%llu (ns)", PRIuint64(s->max));       \
              else if (s->max < 1000000)                                 \
                  fprintf(stderr, "%.2f (μs)", s->max / 1000.0);         \
              else if (s->max < 1000000000)                              \
