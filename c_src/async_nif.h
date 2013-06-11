@@ -375,7 +375,13 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
       q = &async_nif->queues[i];
       enif_mutex_lock(q->reqs_mutex);
   }
+
+  /* Set the shutdown flag so that worker threads will no continue
+     executing requests. */
   async_nif->shutdown = 1;
+
+  /* Make sure to wake up all worker threads sitting on conditional
+     wait for work so that they can see it's time to exit. */
   for (i = 0; i < num_queues; i++) {
       q = &async_nif->queues[i];
       enif_cond_broadcast(q->reqs_cnd);
@@ -388,7 +394,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
     enif_thread_join(async_nif->worker_entries[i].tid, &exit_value);
   }
 
-  /* Free req structres sitting on the recycle queue. */
+  /* Free any req structures sitting unused on the recycle queue. */
   enif_mutex_lock(async_nif->recycled_req_mutex);
   req = NULL;
   fifo_q_foreach(reqs, async_nif->recycled_reqs, req, {
