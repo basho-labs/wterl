@@ -336,7 +336,7 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
              struct wterl_ctx **ctx,
              int count, const char *session_config, ...)
 {
-    int i = 0;
+    int i = 3;
     va_list ap;
     uint64_t sig;
     const char *arg;
@@ -347,33 +347,37 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
     sig = __ctx_cache_sig(session_config, ap, count);
     va_end(ap);
 
+    *ctx = NULL;
     do {
         c = conn_handle->mru_ctx[worker_id];
         if (CASPO(&conn_handle->mru_ctx[worker_id], c, NULL) == c) {
             if (c == NULL) {
                 // mru miss:
+                DPRINTF("[%.4u] mru miss: %llu != NULL", worker_id, PRIuint64(sig));
                 *ctx = NULL;
             } else {
                 if (c->sig == sig) {
                     // mru hit:
+                    DPRINTF("[%.4u] mru hit: %llu", worker_id, PRIuint64(sig));
                     *ctx = c;
+                    break;
                 } else {
                     // mru missmatch:
+                    DPRINTF("[%.4u] mru missmatch: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
                     __ctx_cache_add(conn_handle, c);
                     *ctx = NULL;
                 }
             }
-        } else {
-            // CAS failed, retry...
-            continue;
         }
-    } while(0);
+        // CAS failed, retry up to 3 times
+    } while(i--);
 
     if (*ctx == NULL) {
         // check the cache
         (*ctx) = __ctx_cache_find(conn_handle, sig);
         if ((*ctx) == NULL) {
             // cache miss:
+            DPRINTF("[%.4u] cache miss: %llu [%d]", worker_id, PRIuint64(sig), conn_handle->cache_size);
             WT_CONNECTION *conn = conn_handle->conn;
             WT_SESSION *session = NULL;
             int rc = conn->open_session(conn, NULL, session_config, &session);
@@ -402,7 +406,10 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
                 }
             }
             va_end(ap);
-        } // else { cache hit }
+        } else {
+            // cache hit:
+            DPRINTF("[%.4u] cache hit: %llu [%d]", worker_id, PRIuint64(sig), conn_handle->cache_size);
+        }
     }
     return 0;
 }
@@ -423,9 +430,14 @@ __release_ctx(WterlConnHandle *conn_handle, uint32_t worker_id, struct wterl_ctx
         cursor->reset(cursor);
     }
 
-    do {
-        c = conn_handle->mru_ctx[worker_id];
-    } while(CASPO(&conn_handle->mru_ctx[worker_id], c, ctx) != c);
+    c = conn_handle->mru_ctx[worker_id];
+    if (CASPO(&conn_handle->mru_ctx[worker_id], c, ctx) != c) {
+        __ctx_cache_add(conn_handle, ctx);
+    } else {
+        if (c != NULL) {
+            __ctx_cache_add(conn_handle, c);
+        }
+    }
 }
 
 /**
@@ -1462,15 +1474,18 @@ ASYNC_NIF_DECL(
     cursor->set_key(cursor, &item_key);
     rc = cursor->search(cursor);
     if (rc != 0) {
+        __release_ctx(args->conn_handle, worker_id, ctx);
         ASYNC_NIF_REPLY(__strerror_term(env, rc));
         return;
     }
 
     rc = cursor->get_value(cursor, &item_value);
     if (rc != 0) {
+        __release_ctx(args->conn_handle, worker_id, ctx);
         ASYNC_NIF_REPLY(__strerror_term(env, rc));
         return;
     }
+
     ERL_NIF_TERM value;
     unsigned char *bin = enif_make_new_binary(env, item_value.size, &value);
     memcpy(bin, item_value.data, item_value.size);

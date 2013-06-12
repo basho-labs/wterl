@@ -34,9 +34,9 @@ extern "C" {
 #define UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 512
+#define ASYNC_NIF_MAX_WORKERS 1024
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
-#define ASYNC_NIF_MAX_QUEUED_REQS 1000 * ASYNC_NIF_MAX_WORKERS
+#define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
 
 STAT_DECL(qwait, 1000);
 
@@ -104,12 +104,12 @@ struct async_nif_state {
       return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
                               enif_make_atom(env, "shutdown"));         \
     req = async_nif_reuse_req(async_nif);                               \
-    new_env = req->env;                                                 \
     if (!req) {                                                         \
         async_nif_recycle_req(req, async_nif);                          \
         return enif_make_tuple2(env, enif_make_atom(env, "error"),      \
                                 enif_make_atom(env, "eagain"));         \
     }                                                                   \
+    new_env = req->env;                                                 \
     do pre_block while(0);                                              \
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
@@ -267,16 +267,16 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
           enif_mutex_unlock(q->reqs_mutex);
           return 0;
       }
-      if (fifo_q_size(reqs, q->reqs) > async_nif->num_queues) {
+      if (!fifo_q_full(reqs, q->reqs)) {
           double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
           double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
-          if (fifo_q_full(reqs, q->reqs) || await_inthisq > await) {
+          if (await_inthisq > await) {
               enif_mutex_unlock(q->reqs_mutex);
               qid = (qid + 1) % async_nif->num_queues;
               q = &async_nif->queues[qid];
+          } else {
+              break;
           }
-      } else {
-          break;
       }
       // TODO: at some point add in work sheading/stealing
   } while(n-- > 0);
@@ -467,7 +467,7 @@ async_nif_load()
          sizeof(struct async_nif_work_queue) * num_queues);
 
   async_nif->num_queues = num_queues;
-  async_nif->num_workers = 2 * num_queues;
+  async_nif->num_workers = ASYNC_NIF_MAX_WORKERS;
   async_nif->next_q = 0;
   async_nif->shutdown = 0;
   async_nif->recycled_reqs = fifo_q_new(reqs, ASYNC_NIF_MAX_QUEUED_REQS);
