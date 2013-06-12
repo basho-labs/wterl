@@ -223,8 +223,10 @@ __ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
             conn_handle->histogram[__log2(cpu_clock_ticks() - c->tstamp)]++;
             conn_handle->histogram_count++;
             conn_handle->cache_size -= 1;
-        }
-        c = n;
+	    break;
+        } else {
+	    c = n;
+	}
     }
     enif_mutex_unlock(conn_handle->cache_mutex);
     return c;
@@ -422,7 +424,7 @@ __release_ctx(WterlConnHandle *conn_handle, uint32_t worker_id, struct wterl_ctx
 {
     int i, n;
     WT_CURSOR *cursor;
-    struct wterl_ctx *c;
+    struct wterl_ctx *c = NULL;
 
     n = sizeof((WT_CURSOR**)ctx->cursors) / sizeof(ctx->cursors[0]);
     for (i = 0; i < n; i++) {
@@ -702,7 +704,7 @@ ASYNC_NIF_DECL(
       conn_handle->conn = conn;
       ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
 
-      /* Init hash table which manages the cache of session/cursor(s) */
+      /* Init list for cache of reuseable contexts */
       STAILQ_INIT(&conn_handle->cache);
       conn_handle->cache_size = 0;
 
@@ -748,6 +750,12 @@ ASYNC_NIF_DECL(
     args->priv = (struct wterl_priv_data *)enif_priv_data(env);
   },
   { // work
+
+    /* First, remove this connection from our list of open connections so
+       we don't free it twice when asked to unload. */
+    enif_mutex_lock(args->priv->conns_mutex);
+    SLIST_REMOVE(&args->priv->conns, args->conn_handle, wterl_conn, conns);
+    enif_mutex_unlock(args->priv->conns_mutex);
 
     /* Free up the shared sessions and cursors. */
     enif_mutex_lock(args->conn_handle->cache_mutex);
