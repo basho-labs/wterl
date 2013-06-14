@@ -184,27 +184,27 @@ static unsigned int __log2_64(uint64_t x) {
 
 
 #define STAT_INIT(var, name)                                            \
-     var->name ## _stat.min = ~0;                                       \
-     var->name ## _stat.max = 0;                                        \
-     var->name ## _stat.mean = 0.0;                                     \
-     var->name ## _stat.h = 0;                                          \
-     var->name ## _stat.d.then = 0;                                     \
-     var->name ## _stat.d.unit = ns;
+     (var)->name ## _stat.min = ~0;                                     \
+     (var)->name ## _stat.max = 0;                                      \
+     (var)->name ## _stat.mean = 0.0;                                   \
+     (var)->name ## _stat.h = 0;                                        \
+     (var)->name ## _stat.d.then = 0;                                   \
+     (var)->name ## _stat.d.unit = ns;
 
-#define STAT_TICK(var, name) name ## _stat_tick(&var->name ## _stat)
+#define STAT_TICK(var, name) name ## _stat_tick(&(var)->name ## _stat)
 
-#define STAT_TOCK(var, name) name ## _stat_tock(&var->name ## _stat)
+#define STAT_TOCK(var, name) name ## _stat_tock(&(var)->name ## _stat)
 
-#define STAT_RESET(var, name) name ## _stat_reset(&var->name ## _stat)
+#define STAT_RESET(var, name) name ## _stat_reset(&(var)->name ## _stat)
 
 #define STAT_MEAN_LOG2_SAMPLE(var, name)                                \
-    name ## _stat_mean_lg2(&var->name ## _stat)
+    name ## _stat_mean_lg2(&(var)->name ## _stat)
 
 #define STAT_MEAN_SAMPLE(var, name)                                     \
-    name ## _stat_mean(&var->name ## _stat)
+    name ## _stat_mean(&(var)->name ## _stat)
 
 #define STAT_PRINT(var, name, mod)                                      \
-    name ## _stat_print_histogram(&var->name ## _stat, mod)
+    name ## _stat_print_histogram(&(var)->name ## _stat, mod)
 
 
 #if defined(__cplusplus)

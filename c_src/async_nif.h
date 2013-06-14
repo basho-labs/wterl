@@ -241,7 +241,6 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* Identify the most appropriate worker for this request. */
   unsigned int qid = 0;
   struct async_nif_work_queue *q = NULL;
-  unsigned int n = async_nif->num_queues;
 
   /* Either we're choosing a queue based on some affinity/hinted value or we
      need to select the next queue in the rotation and atomically update that
@@ -253,6 +252,9 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       qid = (qid + 1) % async_nif->num_queues;
       async_nif->next_q = qid;
   }
+
+#if 0 // stats aren't yet thread safe, so this can go haywire... TODO: fix.
+  unsigned int n = async_nif->num_queues;
 
   /* Now we inspect and interate across the set of queues trying to select one
      that isn't too full or too slow. */
@@ -281,6 +283,8 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       // TODO: at some point add in work sheading/stealing
   } while(n-- > 0);
 
+#endif
+
   /* We hold the queue's lock, and we've seletect a reasonable queue for this
      new request so add the request. */
   STAT_TICK(q, qwait);
@@ -297,7 +301,9 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 }
 
 /**
- * TODO:
+ * Worker threads execute this function.  Here each worker pulls requests of
+ * their respective queues, executes that work and continues doing that until
+ * they see the shutdown flag is set at which point they exit.
  */
 static void *
 async_nif_worker_fn(void *arg)

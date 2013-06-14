@@ -43,7 +43,7 @@ struct scale_time {
 };
 static const struct scale_time scale[] = {
      { "ns",  "nanosecond",  1000000000LL, 1LL, 10, 2300000000000LL },
-     { "mcs", "microsecond", 1000000LL, 1000LL, 10, 2300000000LL },
+     { "μs",  "microsecond", 1000000LL, 1000LL, 10, 2300000000LL },
      { "ms",  "millisecond", 1000LL, 1000000LL, 10, 2300000LL },
      { "sec", "second",      1LL, 1000000000LL, 10, 2300LL } };
 
