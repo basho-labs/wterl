@@ -34,7 +34,7 @@ extern "C" {
 #define UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 128
+#define ASYNC_NIF_MAX_WORKERS 8
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 500
 #define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
 
@@ -253,6 +253,9 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       async_nif->next_q = qid;
   }
 
+  q = &async_nif->queues[qid];
+  enif_mutex_lock(q->reqs_mutex);
+
 #if 0 // stats aren't yet thread safe, so this can go haywire... TODO: fix.
   unsigned int n = async_nif->num_queues;
 
@@ -277,12 +280,12 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
               qid = (qid + 1) % async_nif->num_queues;
               q = &async_nif->queues[qid];
           } else {
+              // q->reqs_mutex unlocked at end of function
               break;
           }
       }
       // TODO: at some point add in work sheading/stealing
   } while(n-- > 0);
-
 #endif
 
   /* We hold the queue's lock, and we've seletect a reasonable queue for this
@@ -400,15 +403,6 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
     enif_thread_join(async_nif->worker_entries[i].tid, &exit_value);
   }
 
-  /* Free any req structures sitting unused on the recycle queue. */
-  enif_mutex_lock(async_nif->recycled_req_mutex);
-  req = NULL;
-  fifo_q_foreach(reqs, async_nif->recycled_reqs, req, {
-      enif_free_env(req->env);
-      enif_free(req);
-  });
-  fifo_q_free(reqs, async_nif->recycled_reqs);
-
   /* Cleanup in-flight requests, mutexes and conditions in each work queue. */
   for (i = 0; i < num_queues; i++) {
       q = &async_nif->queues[i];
@@ -429,6 +423,15 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
       enif_mutex_destroy(q->reqs_mutex);
       enif_cond_destroy(q->reqs_cnd);
   }
+
+  /* Free any req structures sitting unused on the recycle queue. */
+  enif_mutex_lock(async_nif->recycled_req_mutex);
+  req = NULL;
+  fifo_q_foreach(reqs, async_nif->recycled_reqs, req, {
+      enif_free_env(req->env);
+      enif_free(req);
+  });
+  fifo_q_free(reqs, async_nif->recycled_reqs);
 
   enif_mutex_unlock(async_nif->recycled_req_mutex);
   enif_mutex_destroy(async_nif->recycled_req_mutex);

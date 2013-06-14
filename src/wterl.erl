@@ -618,7 +618,7 @@ various_online_test_() ->
                 end},
                {"truncate entire table",
                 fun() ->
-			?assertMatch(ok, truncate(ConnRef, "table:test")),
+	       		?assertMatch(ok, truncate(ConnRef, "table:test")),
                         ?assertMatch(not_found, get(ConnRef, "table:test", <<"a">>))
                 end},
                %% {"truncate range [<<b>>..last], ensure value outside range is found after",
