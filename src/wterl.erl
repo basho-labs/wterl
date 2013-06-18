@@ -586,6 +586,23 @@ insert_delete_test() ->
     ?assertMatch(not_found,  get(ConnRef, "table:test", <<"a">>)),
     ok = connection_close(ConnRef).
 
+cursor_fold_keys_test() ->
+    ConnRef = open_test_conn(?TEST_DATA_DIR),
+    ConnRef = open_test_table(ConnRef),
+    [wterl:put(ConnRef, "table:test-fold", crypto:sha(<<X>>),
+	       crypto:rand_bytes(crypto:rand_uniform(128, 4096)))
+     || X <- lists:seq(1, 2000)],
+    Cursor = wterl:cursor_open(ConnRef, "table:test-fold"),
+    try
+	{Result, _} = wterl:fold_keys(Cursor, fun(Key, Acc) -> [Key | Acc] end, [])
+    catch
+	_:_ -> wterl:cursor_close(Cursor)
+    after
+	ok = connection_close(ConnRef)
+    end.
+%    ?assertMatch(lists:sort(Result),
+%		 lists:sort([crypto:sha(<<X>>) || X <- lists:seq(1, 2000)])).
+
 many_open_tables_test_() ->
     {timeout, 60,
      fun() ->

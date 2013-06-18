@@ -33,7 +33,7 @@ extern "C" {
 #include <stdarg.h>
 #define DPRINTF(fmt, ...)							\
     do {									\
-	fprintf(stderr, "%s:%d (%s) " fmt "\n", __FILE__, __LINE__, __func__, __VA_ARGS__); \
+	fprintf(stderr, "%s:%d " fmt "\n", __FILE__, __LINE__, __VA_ARGS__);    \
 	fflush(stderr);								\
     } while(0)
 #define DPUTS(arg)		DPRINTF("%s", arg)
