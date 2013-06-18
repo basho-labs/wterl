@@ -11,9 +11,9 @@ unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as w
 set -e
 
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
-WT_BRANCH=develop
-WT_VSN=""
-WT_DIR=wiredtiger-$WT_BRANCH
+WT_BRANCH=
+WT_REF="tags/1.6.2"
+WT_DIR=wiredtiger-`basename $WT_REF`
 
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
@@ -35,9 +35,9 @@ get_wt ()
     if [ -d $BASEDIR/$WT_DIR/.git ]; then
         (cd $BASEDIR/$WT_DIR && git pull -u) || exit 1
     else
-        if [ "X$WT_VSN" != "X" ]; then
+        if [ "X$WT_REF" != "X" ]; then
             git clone ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout $WT_VSN || exit 1)
+                (cd $BASEDIR/wiredtiger && git checkout refs/$WT_REF || exit 1)
         else
             git clone ${WT_REPO} && \
                 (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)

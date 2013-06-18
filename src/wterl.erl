@@ -96,8 +96,8 @@ nif_stub_error(Line) ->
 -spec init() -> ok | {error, any()}.
 init() ->
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-           [{wterl_vsn, "b2c0b65"},
-	    {wiredtiger_vsn, "1.6.1-87-gbe6742a"}]).
+           [{wterl_vsn, "53307e8"},
+	    {wiredtiger_vsn, "1.6.2-0-g07cb0a5"}]).
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -585,6 +585,39 @@ insert_delete_test() ->
     ?assertMatch(ok, delete(ConnRef, "table:test", <<"a">>)),
     ?assertMatch(not_found,  get(ConnRef, "table:test", <<"a">>)),
     ok = connection_close(ConnRef).
+
+many_open_tables_test_() ->
+    {timeout, 60,
+     fun() ->
+	     ConnOpts = [{create,true},{cache_size,"100MB"},{session_max, 8192}],
+	     DataDir = ?TEST_DATA_DIR,
+	     KeyGen =
+		 fun(X) ->
+			 crypto:sha(<<X>>)
+		 end,
+	     ValGen =
+		 fun() ->
+			 crypto:rand_bytes(crypto:rand_uniform(128, 4096))
+		 end,
+	     TableNameGen =
+		 fun(X) ->
+			 "lsm:" ++ integer_to_list(X)
+		 end,
+	     N = 1000,
+	     ConnRef = open_test_conn(DataDir, ConnOpts),
+	     Parent = self(),
+	     [wterl:create(ConnRef, TableNameGen(X), [{checksum, "uncompressed"}]) || X <- lists:seq(0, 128)],
+	     [spawn(fun() ->
+			    TableName = TableNameGen(X),
+			    [wterl:put(ConnRef, TableName, KeyGen(P), ValGen()) || P <- lists:seq(1, N)],
+			    [wterl:get(ConnRef, TableName, KeyGen(P)) || P <- lists:seq(1, N)],
+			    [wterl:delete(ConnRef, TableName, KeyGen(P)) || P <- lists:seq(1, N)],
+			    Parent ! done
+		    end) || X <- lists:seq(0, 128)],
+	     [wterl:drop(ConnRef, TableNameGen(X)) || X <- lists:seq(0, 128)],
+	     [receive done -> ok end || _ <- lists:seq(0, 128)],
+	     ok = wterl:connection_close(ConnRef)
+     end}.
 
 init_test_table() ->
     ConnRef = open_test_conn(?TEST_DATA_DIR),

@@ -127,7 +127,7 @@ __str_hash(uint32_t in, const char *p, size_t len)
 {
     uint32_t h = in;
     for (++p ; len > 0; ++p, --len)
-        h = (h << 5) - h + (uint32_t)*p;
+	h += (h << 5) + (h >> 27) + *p;
     return h;
 }
 
