@@ -82,11 +82,15 @@ struct async_nif_state {
   struct decl ## _args frame;                                           \
   static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) { \
   UNUSED(worker_id);                                                    \
+  DPRINTF("async_nif: calling \"%s\"", __func__);			\
   do work_block while(0);                                               \
+  DPRINTF("async_nif: returned from \"%s\"", __func__);			\
   }                                                                     \
   static void fn_post_ ## decl (struct decl ## _args *args) {           \
     UNUSED(args);                                                       \
+    DPRINTF("async_nif: calling \"fn_post_%s\"", #decl);		\
     do post_block while(0);                                             \
+    DPRINTF("async_nif: returned from \"fn_post_%s\"", #decl);		\
   }                                                                     \
   static ERL_NIF_TERM decl(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv_in[]) { \
     struct decl ## _args on_stack_args;                                 \
@@ -110,7 +114,9 @@ struct async_nif_state {
                                 enif_make_atom(env, "eagain"));         \
     }                                                                   \
     new_env = req->env;                                                 \
+    DPRINTF("async_nif: calling \"%s\"", __func__);			\
     do pre_block while(0);                                              \
+    DPRINTF("async_nif: returned from \"%s\"", __func__);		\
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_ ## decl (args);                                          \
