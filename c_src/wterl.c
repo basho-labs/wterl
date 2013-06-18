@@ -195,7 +195,7 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
     uint64_t now, elapsed;
     struct wterl_ctx *c, *n;
 
-    if (conn_handle->cache_size != MAX_CACHE_SIZE)
+    if (conn_handle->cache_size < MAX_CACHE_SIZE)
         return 0;
 
     now = cpu_clock_ticks();
