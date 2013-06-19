@@ -95,7 +95,6 @@ nif_stub_error(Line) ->
 
 -spec init() -> ok | {error, any()}.
 init() ->
-    Module <- [wterl, wterl_conn, wterl_app, wterl_sup, wterl_ets, riak_kv_wiredtiger_backend, temp_riak_kv_backend]],
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
            [{wterl_vsn, "53307e8"},
 	    {wiredtiger_vsn, "1.6.2-0-g07cb0a5"}]).
