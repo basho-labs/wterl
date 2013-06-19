@@ -4,18 +4,16 @@
  * Copyright (c) 2012 Basho Technologies, Inc. All Rights Reserved.
  * Author: Gregory Burd <greg@basho.com> <greg@burd.me>
  *
- * This file is provided to you under the Apache License,
- * Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License.  You may obtain
- * a copy of the License at
+ * This file is provided to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
  *
  *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations
  * under the License.
  */
 
@@ -34,8 +32,8 @@ extern "C" {
 #define UNUSED(v) ((void)(v))
 #endif
 
-#define ASYNC_NIF_MAX_WORKERS 8
-#define ASYNC_NIF_WORKER_QUEUE_SIZE 500
+#define ASYNC_NIF_MAX_WORKERS 1024
+#define ASYNC_NIF_WORKER_QUEUE_SIZE 2000
 #define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
 
 STAT_DECL(qwait, 1000);
@@ -82,15 +80,15 @@ struct async_nif_state {
   struct decl ## _args frame;                                           \
   static void fn_work_ ## decl (ErlNifEnv *env, ERL_NIF_TERM ref, ErlNifPid *pid, unsigned int worker_id, struct decl ## _args *args) { \
   UNUSED(worker_id);                                                    \
-  DPRINTF("async_nif: calling \"%s\"", __func__);			\
+  DPRINTF("async_nif: calling \"%s\"", __func__);                       \
   do work_block while(0);                                               \
-  DPRINTF("async_nif: returned from \"%s\"", __func__);			\
+  DPRINTF("async_nif: returned from \"%s\"", __func__);                 \
   }                                                                     \
   static void fn_post_ ## decl (struct decl ## _args *args) {           \
     UNUSED(args);                                                       \
-    DPRINTF("async_nif: calling \"fn_post_%s\"", #decl);		\
+    DPRINTF("async_nif: calling \"fn_post_%s\"", #decl);                \
     do post_block while(0);                                             \
-    DPRINTF("async_nif: returned from \"fn_post_%s\"", #decl);		\
+    DPRINTF("async_nif: returned from \"fn_post_%s\"", #decl);          \
   }                                                                     \
   static ERL_NIF_TERM decl(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv_in[]) { \
     struct decl ## _args on_stack_args;                                 \
@@ -114,9 +112,9 @@ struct async_nif_state {
                                 enif_make_atom(env, "eagain"));         \
     }                                                                   \
     new_env = req->env;                                                 \
-    DPRINTF("async_nif: calling \"%s\"", __func__);			\
+    DPRINTF("async_nif: calling \"%s\"", __func__);                     \
     do pre_block while(0);                                              \
-    DPRINTF("async_nif: returned from \"%s\"", __func__);		\
+    DPRINTF("async_nif: returned from \"%s\"", __func__);               \
     copy_of_args = (struct decl ## _args *)enif_alloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_ ## decl (args);                                          \
