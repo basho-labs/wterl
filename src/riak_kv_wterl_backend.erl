@@ -52,9 +52,7 @@
 
 -record(state, {table :: string(),
                 type :: string(),
-                connection :: wterl:connection(),
-                is_empty_cursor :: wterl:cursor(),
-                status_cursor :: wterl:cursor()}).
+                connection :: wterl:connection()}).
 
 -type state() :: #state{}.
 -type config() :: [{atom(), term()}].
@@ -135,15 +133,8 @@ start(Partition, Config) ->
                 end,
             case wterl:create(Connection, Table, TableOpts) of
                 ok ->
-                    case establish_utility_cursors(Connection, Table) of
-                        {ok, IsEmptyCursor, StatusCursor} ->
-                            {ok, #state{table=Table, type=Type,
-                                        connection=Connection,
-                                        is_empty_cursor=IsEmptyCursor,
-                                        status_cursor=StatusCursor}};
-                        {error, Reason2} ->
-                            {error, Reason2}
-                    end;
+		    {ok, #state{table=Table, type=Type,
+				connection=Connection}};
                 {error, Reason3} ->
                     {error, Reason3}
                 end
@@ -329,25 +320,42 @@ drop(#state{connection=Connection, table=Table}=State) ->
 %% @doc Returns true if this wterl backend contains any
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
-is_empty(#state{is_empty_cursor=Cursor}) ->
-    wterl:cursor_reset(Cursor),
-    case wterl:cursor_next(Cursor) of
-        not_found -> true;
-        {error, {eperm, _}} -> false; % TODO: review/fix this logic
-        _ -> false
+is_empty(#state{connection=Connection, table=Table}) ->
+    case wterl:cursor_open(Connection, Table) of
+        {ok, Cursor} ->
+	    IsEmpty =
+		case wterl:cursor_next(Cursor) of
+		    not_found ->
+			true;
+		    {error, {eperm, _}} ->
+			false; % TODO: review/fix this logic
+		    _ ->
+			false
+		end,
+	    wterl:cursor_close(Cursor),
+	    IsEmpty;
+        {error, Reason2} ->
+            {error, Reason2}
     end.
 
 %% @doc Get the status information for this wterl backend
 -spec status(state()) -> [{atom(), term()}].
-status(#state{status_cursor=Cursor}) ->
-    wterl:cursor_reset(Cursor),
-    case fetch_status(Cursor) of
-        {ok, Stats} ->
-            Stats;
-        {error, {eperm, _}} -> % TODO: review/fix this logic
-            {ok, []};
-        _ ->
-            {ok, []}
+status(#state{connection=Connection, table=Table}) ->
+    case wterl:cursor_open(Connection, Table) of
+        {ok, Cursor} ->
+	    TheStats =
+		case fetch_status(Cursor) of
+		    {ok, Stats} ->
+			Stats;
+		    {error, {eperm, _}} -> % TODO: review/fix this logic
+			{ok, []};
+		    _ ->
+			{ok, []}
+		end,
+	    wterl:cursor_close(Cursor),
+	    TheStats;
+        {error, Reason2} ->
+            {error, Reason2}
     end.
 
 %% @doc Register an asynchronous callback
@@ -371,20 +379,6 @@ max_sessions(Config) ->
     case Est > 1000000000  of % Note: WiredTiger uses a signed int for this
         true -> 1000000000;
         false -> Est
-    end.
-
-%% @private
-establish_utility_cursors(Connection, Table) ->
-    case wterl:cursor_open(Connection, Table) of
-        {ok, IsEmptyCursor} ->
-            case wterl:cursor_open(Connection, "statistics:" ++ Table, [{statistics_fast, true}]) of
-                {ok, StatusCursor} ->
-                    {ok, IsEmptyCursor, StatusCursor};
-                {error, Reason1} ->
-                    {error, Reason1}
-            end;
-        {error, Reason2} ->
-            {error, Reason2}
     end.
 
 %% @private
