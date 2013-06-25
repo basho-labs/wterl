@@ -26,8 +26,10 @@
 #include <inttypes.h>
 #include <errno.h>
 
-#include "common.h"
 #include "wiredtiger.h"
+
+#include "common.h"
+#include "duration.h"
 #include "stats.h"
 #include "async_nif.h"
 #include "queue.h"
@@ -191,16 +193,14 @@ static inline uint32_t __log2(uint64_t x) {
 static int
 __ctx_cache_evict(WterlConnHandle *conn_handle)
 {
-    uint32_t num_evicted = 0;
-    struct wterl_ctx *c;
-
-    if (conn_handle->cache_size < MAX_CACHE_SIZE)
-        return 0;
-
-#if 0 // TODO: fixme once stats work again
+    static uint16_t ncalls = 0;
     uint32_t mean, log, num_evicted, i;
     uint64_t now, elapsed;
     struct wterl_ctx *c, *n;
+
+    if (conn_handle->cache_size < MAX_CACHE_SIZE && ++ncalls != 0)
+        return 0;
+
     now = cpu_clock_ticks();
 
     // Find the mean of the recorded times that items stayed in cache.
@@ -233,16 +233,6 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
         }
         c = n;
     }
-#else
-    c = STAILQ_FIRST(&conn_handle->cache);
-    if (c) {
-        STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
-        DPRINTF("evicting: %llu", PRIuint64(c->sig));
-        c->session->close(c->session, NULL);
-        enif_free(c);
-        num_evicted++;
-    }
-#endif
     conn_handle->cache_size -= num_evicted;
     return num_evicted;
 }
@@ -295,57 +285,6 @@ __ctx_cache_add(WterlConnHandle *conn_handle, struct wterl_ctx *c)
     enif_mutex_unlock(conn_handle->cache_mutex);
 }
 
-/**
- * Create a signature for the operation we're about to perform.
- *
- * Create a 64-bit hash signature for this a combination of session
- * configuration some number of cursors open on tables each potentially with a
- * different configuration. "session_config, [{table_name, cursor_config},
- * ...]"
- *
- * session_config   the string used to configure the WT_SESSION
- * ...              each pair of items in the varargs array is a table name,
- *                  cursor config pair
- * ->   number of variable arguments processed
- */
-static uint64_t
-__ctx_cache_sig(const char *c, va_list ap, int count, size_t *len)
-{
-    int i = 0;
-    uint32_t hash = 0;
-    uint32_t crc = 0;
-    uint64_t sig = 0;
-    const char *arg;
-    size_t l = 0;
-
-    *len = 0;
-
-    if (c) {
-        l = __strlen(c);
-        hash = __str_hash(hash, c, l);
-        crc = __crc32(crc, c, l);
-        *len += l + 1;
-    } else {
-        *len += 1;
-    }
-
-    for (i = 0; i < (2 * count); i++) {
-        arg = va_arg(ap, const char *);
-        if (arg) {
-            l = __strlen(arg);
-            hash = __str_hash(hash, arg, l);
-            crc = __crc32(crc, arg, __strlen(arg));
-            *len += l + 1;
-        } else {
-            *len += 1;
-        }
-    }
-
-    sig = (uint64_t)crc << 32 | hash;
-    //DPRINTF("sig %llu [%u:%u]", PRIuint64(sig), crc, hash);
-    return sig;
-}
-
 static inline char *
 __copy_str_into(char **p, const char *s)
 {
@@ -366,42 +305,63 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
              struct wterl_ctx **ctx,
              int count, const char *session_config, ...)
 {
-    int i = 3;
-    size_t sig_len = 0;
+    int i = 0;
+    uint32_t hash = 0;
+    uint32_t crc = 0;
+    uint64_t sig = 0;
+    size_t l, sig_len = 0;
     va_list ap;
-    uint64_t sig;
     const char *arg;
     struct wterl_ctx *c;
 
     arg = session_config;
     va_start(ap, session_config);
-    sig = __ctx_cache_sig(session_config, ap, count, &sig_len);
+    if (session_config) {
+        l = __strlen(session_config);
+        hash = __str_hash(hash, session_config, l);
+        crc = __crc32(crc, session_config, l);
+        sig_len += l + 1;
+	DPRINTF("sig/1: %s", session_config);
+    } else {
+        sig_len += 1;
+    }
+    for (i = 0; i < (2 * count); i++) {
+        arg = va_arg(ap, const char *);
+        if (arg) {
+            l = __strlen(arg);
+	    DPRINTF("sig/args: %s", arg);
+            hash = __str_hash(hash, arg, l);
+            crc = __crc32(crc, arg, l);
+            sig_len += l + 1;
+        } else {
+            sig_len += 1;
+        }
+    }
+    sig = (uint64_t)crc << 32 | hash;
+    DPRINTF("sig %llu [%u:%u]", PRIuint64(sig), crc, hash);
     va_end(ap);
 
     *ctx = NULL;
-    do {
-        c = conn_handle->mru_ctx[worker_id];
-        if (CASPO(&conn_handle->mru_ctx[worker_id], c, 0) == c) {
-            if (c == 0) {
-                // mru miss:
-                DPRINTF("[%.4u] mru miss, empty", worker_id);
-                *ctx = NULL;
-            } else {
-                if (c->sig == sig) {
-                    // mru hit:
-                    DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
-                    *ctx = c;
-                    break;
-                } else {
-                    // mru mismatch:
-                    DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
-                    __ctx_cache_add(conn_handle, c);
-                    *ctx = NULL;
-                }
-            }
+
+    c = conn_handle->mru_ctx[worker_id];
+    if (CASPO(&conn_handle->mru_ctx[worker_id], c, 0) == c) {
+	if (c == 0) {
+	    // mru miss:
+	    DPRINTF("[%.4u] mru miss, empty", worker_id);
+	    *ctx = NULL;
+	} else {
+	    if (c->sig == sig) {
+		// mru hit:
+		DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
+		*ctx = c;
+	    } else {
+		// mru mismatch:
+		DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
+		__ctx_cache_add(conn_handle, c);
+		*ctx = NULL;
+	    }
         }
-        // CAS failed, retry up to 3 times
-    } while(i--);
+    }
 
     if (*ctx == NULL) {
         // check the cache
@@ -474,9 +434,9 @@ __release_ctx(WterlConnHandle *conn_handle, uint32_t worker_id, struct wterl_ctx
     } else {
         if (c != NULL) {
             __ctx_cache_add(conn_handle, c);
-            DPRINTF("[%.4u] reset %d cursors, returnd ctx to cache", worker_id, ctx->num_cursors);
+            DPRINTF("[%.4u] reset %d cursors, returned ctx to cache", worker_id, ctx->num_cursors);
         } else {
-            DPRINTF("[%.4u] reset %d cursors, returnd ctx to mru", worker_id, ctx->num_cursors);
+            DPRINTF("[%.4u] reset %d cursors, returned ctx to mru", worker_id, ctx->num_cursors);
         }
     }
 }

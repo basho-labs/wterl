@@ -19,7 +19,7 @@
 #endif
 
 
-void current_utc_time(struct timespec *ts)
+static inline void current_utc_time(struct timespec *ts)
 {
 #ifdef __MACH__ // OS X does not have clock_gettime, use clock_get_time
     clock_serv_t cclock;

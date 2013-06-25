@@ -26,6 +26,7 @@ extern "C" {
 
 #include <assert.h>
 #include "fifo_q.h"
+#include "queue.h"
 #include "stats.h"
 
 #ifndef UNUSED
@@ -33,10 +34,8 @@ extern "C" {
 #endif
 
 #define ASYNC_NIF_MAX_WORKERS 1024
-#define ASYNC_NIF_WORKER_QUEUE_SIZE 2000
+#define ASYNC_NIF_WORKER_QUEUE_SIZE 1000
 #define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
-
-STAT_DECL(qwait, 1000);
 
 struct async_nif_req_entry {
   ERL_NIF_TERM ref;
@@ -45,12 +44,12 @@ struct async_nif_req_entry {
   void *args;
   void (*fn_work)(ErlNifEnv*, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *);
   void (*fn_post)(void *);
-  const char *func;
 };
 DECL_FIFO_QUEUE(reqs, struct async_nif_req_entry);
 
 struct async_nif_work_queue {
   STAT_DEF(qwait);
+  unsigned int workers;
   ErlNifMutex *reqs_mutex;
   ErlNifCond *reqs_cnd;
   FIFO_QUEUE_TYPE(reqs) reqs;
@@ -61,13 +60,15 @@ struct async_nif_worker_entry {
   unsigned int worker_id;
   struct async_nif_state *async_nif;
   struct async_nif_work_queue *q;
+  SLIST_ENTRY(async_nif_worker_entry) entries;
 };
 
 struct async_nif_state {
   STAT_DEF(qwait);
   unsigned int shutdown;
-  unsigned int num_workers;
-  struct async_nif_worker_entry worker_entries[ASYNC_NIF_MAX_WORKERS];
+  ErlNifMutex *we_mutex;
+  unsigned int we_active;
+  SLIST_HEAD(joining, async_nif_worker_entry) we_joining;
   unsigned int num_queues;
   unsigned int next_q;
   FIFO_QUEUE_TYPE(reqs) recycled_reqs;
@@ -107,7 +108,6 @@ struct async_nif_state {
                               enif_make_atom(env, "shutdown"));         \
     req = async_nif_reuse_req(async_nif);                               \
     if (!req) {                                                         \
-        async_nif_recycle_req(req, async_nif);                          \
         return enif_make_tuple2(env, enif_make_atom(env, "error"),      \
                                 enif_make_atom(env, "eagain"));         \
     }                                                                   \
@@ -128,7 +128,6 @@ struct async_nif_state {
     req->args = (void*)copy_of_args;                                    \
     req->fn_work = (void (*)(ErlNifEnv *, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *))fn_work_ ## decl ; \
     req->fn_post = (void (*)(void *))fn_post_ ## decl;                 \
-    req->func = __func__;                                              \
     int h = -1;                                                        \
     if (affinity)                                                      \
         h = affinity % async_nif->num_queues;                          \
@@ -195,12 +194,12 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
             if (req) {
                 memset(req, 0, sizeof(struct async_nif_req_entry));
                 env = enif_alloc_env();
-                if (!env) {
-                    enif_free(req);
-                    req = NULL;
-                } else {
+                if (env) {
                     req->env = env;
                     async_nif->num_reqs++;
+                } else {
+                    enif_free(req);
+                    req = NULL;
                 }
             }
         }
@@ -208,7 +207,7 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
         req = fifo_q_get(reqs, async_nif->recycled_reqs);
     }
     enif_mutex_unlock(async_nif->recycled_req_mutex);
-    STAT_TICK(async_nif, qwait);
+    __stat_tick(async_nif->qwait_stat);
     return req;
 }
 
@@ -223,14 +222,59 @@ void
 async_nif_recycle_req(struct async_nif_req_entry *req, struct async_nif_state *async_nif)
 {
     ErlNifEnv *env = NULL;
-    STAT_TOCK(async_nif, qwait);
+    __stat_tock(async_nif->qwait_stat);
     enif_mutex_lock(async_nif->recycled_req_mutex);
+    enif_clear_env(req->env);
     env = req->env;
-    enif_clear_env(env);
     memset(req, 0, sizeof(struct async_nif_req_entry));
     req->env = env;
     fifo_q_put(reqs, async_nif->recycled_reqs, req);
     enif_mutex_unlock(async_nif->recycled_req_mutex);
+}
+
+static void *async_nif_worker_fn(void *);
+
+/**
+ * Start up a worker thread.
+ */
+static int
+async_nif_start_worker(struct async_nif_state *async_nif, struct async_nif_work_queue *q)
+{
+  struct async_nif_worker_entry *we;
+
+  if (0 == q)
+      return EINVAL;
+
+  enif_mutex_lock(async_nif->we_mutex);
+
+  we = SLIST_FIRST(&async_nif->we_joining);
+  while(we != NULL) {
+    struct async_nif_worker_entry *n = SLIST_NEXT(we, entries);
+    SLIST_REMOVE_HEAD(&async_nif->we_joining, entries);
+    void *exit_value = 0; /* We ignore the thread_join's exit value. */
+    enif_thread_join(we->tid, &exit_value);
+    enif_free(we);
+    async_nif->we_active--;
+    we = n;
+  }
+
+  if (async_nif->we_active == ASYNC_NIF_MAX_WORKERS) {
+      enif_mutex_unlock(async_nif->we_mutex);
+      return EAGAIN;
+  }
+
+  we = enif_alloc(sizeof(struct async_nif_worker_entry));
+  if (!we) {
+      enif_mutex_unlock(async_nif->we_mutex);
+      return ENOMEM;
+  }
+  memset(we, 0, sizeof(struct async_nif_worker_entry));
+  we->worker_id = async_nif->we_active++;
+  we->async_nif = async_nif;
+  we->q = q;
+
+  enif_mutex_unlock(async_nif->we_mutex);
+  return enif_thread_create(NULL,&we->tid, &async_nif_worker_fn, (void*)we, 0);
 }
 
 /**
@@ -244,7 +288,10 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 {
   /* Identify the most appropriate worker for this request. */
   unsigned int qid = 0;
+  unsigned int n = async_nif->num_queues;
   struct async_nif_work_queue *q = NULL;
+  double await = 0;
+  double await_inthisq = 0;
 
   /* Either we're choosing a queue based on some affinity/hinted value or we
      need to select the next queue in the rotation and atomically update that
@@ -256,12 +303,6 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       qid = (qid + 1) % async_nif->num_queues;
       async_nif->next_q = qid;
   }
-
-  q = &async_nif->queues[qid];
-  enif_mutex_lock(q->reqs_mutex);
-
-#if 0 // stats aren't yet thread safe, so this can go haywire... TODO: fix.
-  unsigned int n = async_nif->num_queues;
 
   /* Now we inspect and interate across the set of queues trying to select one
      that isn't too full or too slow. */
@@ -277,8 +318,8 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
           return 0;
       }
       if (!fifo_q_full(reqs, q->reqs)) {
-          double await = STAT_MEAN_LOG2_SAMPLE(async_nif, qwait);
-          double await_inthisq = STAT_MEAN_LOG2_SAMPLE(q, qwait);
+          await = __stat_mean_log2(async_nif->qwait_stat);
+          await_inthisq = __stat_mean_log2(q->qwait_stat);
           if (await_inthisq > await) {
               enif_mutex_unlock(q->reqs_mutex);
               qid = (qid + 1) % async_nif->num_queues;
@@ -288,13 +329,18 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
               break;
           }
       }
-      // TODO: at some point add in work sheading/stealing
   } while(n-- > 0);
-#endif
 
   /* We hold the queue's lock, and we've seletect a reasonable queue for this
-     new request so add the request. */
-  STAT_TICK(q, qwait);
+     new request now check to make sure there are enough workers actively
+     processing requests on this queue. */
+  if (q->workers < 2 || await_inthisq > await) {
+      if (async_nif_start_worker(async_nif, q) == 0)
+	  q->workers++;
+  }
+
+  /* And finally add the request to the queue. */
+  __stat_tick(q->qwait_stat);
   fifo_q_put(reqs, q->reqs, req);
 
   /* Build the term before releasing the lock so as not to race on the use of
@@ -331,9 +377,14 @@ async_nif_worker_fn(void *arg)
     }
     if (fifo_q_empty(reqs, q->reqs)) {
       /* Queue is empty so we wait for more work to arrive. */
-      STAT_RESET(q, qwait);
-      enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
-      goto check_again_for_work;
+      __stat_reset(q->qwait_stat);
+      if (q->workers > 2) {
+	  enif_mutex_unlock(q->reqs_mutex);
+	  break;
+      } else {
+	  enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
+	  goto check_again_for_work;
+      }
     } else {
       assert(fifo_q_size(reqs, q->reqs) > 0);
       assert(fifo_q_size(reqs, q->reqs) < fifo_q_capacity(reqs, q->reqs));
@@ -348,7 +399,7 @@ async_nif_worker_fn(void *arg)
 
       /* Perform the work. */
       req->fn_work(req->env, req->ref, &req->pid, worker_id, req->args);
-      STAT_TOCK(q, qwait);
+      __stat_tock(q->qwait_stat);
 
       /* Now call the post-work cleanup function. */
       req->fn_post(req->args);
@@ -363,6 +414,10 @@ async_nif_worker_fn(void *arg)
       req = NULL;
     }
   }
+  enif_mutex_lock(async_nif->we_mutex);
+  SLIST_INSERT_HEAD(&async_nif->we_joining, we, entries);
+  enif_mutex_unlock(async_nif->we_mutex);
+  q->workers--;
   enif_thread_exit(0);
   return 0;
 }
@@ -374,9 +429,10 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
   unsigned int num_queues = async_nif->num_queues;
   struct async_nif_work_queue *q = NULL;
   struct async_nif_req_entry *req = NULL;
+  struct async_nif_worker_entry *we = NULL;
   UNUSED(env);
 
-  STAT_PRINT(async_nif, qwait, "wterl");
+  __stat_print_histogram(async_nif->qwait_stat, "wterl");
 
   /* Signal the worker threads, stop what you're doing and exit.  To
      ensure that we don't race with the enqueue() process we first
@@ -393,19 +449,29 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
      executing requests. */
   async_nif->shutdown = 1;
 
-  /* Make sure to wake up all worker threads sitting on conditional
-     wait for work so that they can see it's time to exit. */
   for (i = 0; i < num_queues; i++) {
       q = &async_nif->queues[i];
-      enif_cond_broadcast(q->reqs_cnd);
       enif_mutex_unlock(q->reqs_mutex);
   }
 
   /* Join for the now exiting worker threads. */
-  for (i = 0; i < async_nif->num_workers; ++i) {
-    void *exit_value = 0; /* We ignore the thread_join's exit value. */
-    enif_thread_join(async_nif->worker_entries[i].tid, &exit_value);
+  while(async_nif->we_active > 0) {
+
+      for (i = 0; i < num_queues; i++)
+	  enif_cond_broadcast(async_nif->queues[i].reqs_cnd);
+
+      we = SLIST_FIRST(&async_nif->we_joining);
+      while(we != NULL) {
+	  struct async_nif_worker_entry *n = SLIST_NEXT(we, entries);
+	  SLIST_REMOVE_HEAD(&async_nif->we_joining, entries);
+	  void *exit_value = 0; /* We ignore the thread_join's exit value. */
+	  enif_thread_join(we->tid, &exit_value);
+	  enif_free(we);
+	  async_nif->we_active--;
+	  we = n;
+      }
   }
+  enif_mutex_destroy(async_nif->we_mutex);
 
   /* Cleanup in-flight requests, mutexes and conditions in each work queue. */
   for (i = 0; i < num_queues; i++) {
@@ -447,7 +513,7 @@ static void *
 async_nif_load()
 {
   static int has_init = 0;
-  unsigned int i, j, num_queues;
+  unsigned int i, num_queues;
   ErlNifSysInfo info;
   struct async_nif_state *async_nif;
 
@@ -477,57 +543,24 @@ async_nif_load()
   if (!async_nif)
       return NULL;
   memset(async_nif, 0, sizeof(struct async_nif_state) +
-         sizeof(struct async_nif_work_queue) * num_queues);
+                       sizeof(struct async_nif_work_queue) * num_queues);
 
   async_nif->num_queues = num_queues;
-  async_nif->num_workers = ASYNC_NIF_MAX_WORKERS;
+  async_nif->we_active = 0;
   async_nif->next_q = 0;
   async_nif->shutdown = 0;
   async_nif->recycled_reqs = fifo_q_new(reqs, ASYNC_NIF_MAX_QUEUED_REQS);
   async_nif->recycled_req_mutex = enif_mutex_create(NULL);
-  STAT_INIT(async_nif, qwait);
+  async_nif->qwait_stat = __stat_init(1000);
+  async_nif->we_mutex = enif_mutex_create(NULL);
+  SLIST_INIT(&async_nif->we_joining);
 
   for (i = 0; i < async_nif->num_queues; i++) {
       struct async_nif_work_queue *q = &async_nif->queues[i];
       q->reqs = fifo_q_new(reqs, ASYNC_NIF_WORKER_QUEUE_SIZE);
       q->reqs_mutex = enif_mutex_create(NULL);
       q->reqs_cnd = enif_cond_create(NULL);
-      STAT_INIT(q, qwait);
-  }
-
-  /* Setup the thread pool management. */
-  memset(async_nif->worker_entries, 0, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
-
-  /* Start the worker threads. */
-  for (i = 0; i < async_nif->num_workers; i++) {
-    struct async_nif_worker_entry *we = &async_nif->worker_entries[i];
-    we->async_nif = async_nif;
-    we->worker_id = i;
-    we->q = &async_nif->queues[i % async_nif->num_queues];
-    if (enif_thread_create(NULL, &async_nif->worker_entries[i].tid,
-                            &async_nif_worker_fn, (void*)we, NULL) != 0) {
-      async_nif->shutdown = 1;
-
-      for (j = 0; j < async_nif->num_queues; j++) {
-          struct async_nif_work_queue *q = &async_nif->queues[j];
-          enif_cond_broadcast(q->reqs_cnd);
-      }
-
-      while(i-- > 0) {
-        void *exit_value = 0; /* Ignore this. */
-        enif_thread_join(async_nif->worker_entries[i].tid, &exit_value);
-      }
-
-      for (j = 0; j < async_nif->num_queues; j++) {
-          struct async_nif_work_queue *q = &async_nif->queues[j];
-          enif_mutex_destroy(q->reqs_mutex);
-          enif_cond_destroy(q->reqs_cnd);
-      }
-
-      memset(async_nif->worker_entries, 0, sizeof(struct async_nif_worker_entry) * ASYNC_NIF_MAX_WORKERS);
-      enif_free(async_nif);
-      return NULL;
-    }
+      q->qwait_stat = __stat_init(1000);
   }
   return async_nif;
 }

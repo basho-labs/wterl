@@ -36,13 +36,12 @@ get_wt ()
         (cd $BASEDIR/$WT_DIR && git pull -u) || exit 1
     else
         if [ "X$WT_REF" != "X" ]; then
-            git clone ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout refs/$WT_REF || exit 1)
+            git clone ${WT_REPO} ${WT_DIR} && \
+                (cd $BASEDIR/$WT_DIR && git checkout refs/$WT_REF || exit 1)
         else
-            git clone ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)
+            git clone ${WT_REPO} ${WT_DIR} && \
+                (cd $BASEDIR/$WT_DIR && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)
         fi
-        mv wiredtiger $WT_DIR || exit 1
     fi
     [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
     (cd $BASEDIR/$WT_DIR

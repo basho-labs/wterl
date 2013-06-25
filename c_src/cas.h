@@ -69,9 +69,9 @@ do {                                                                    \
         __val = __newval;                                               \
 } while ( 0 )
 
-#define ALIGNED_ENIF_ALLOC(_s)                                      \
-    ((void *)(((unsigned long)enif_alloc((_s)+CACHE_LINE_SIZE*2) +  \
-               CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE-1)))        \
+#define CACHE_ALIGNED_SIZEOF(_s)                                      \
+    ((sizeof(_s)) + CACHE_LINE_SIZE*2) +                              \
+    CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE-1)))                     \
 
 /*
  * I. Compare-and-swap.
