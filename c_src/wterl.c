@@ -193,12 +193,11 @@ static inline uint32_t __log2(uint64_t x) {
 static int
 __ctx_cache_evict(WterlConnHandle *conn_handle)
 {
-    static uint16_t ncalls = 0;
     uint32_t mean, log, num_evicted, i;
     uint64_t now, elapsed;
     struct wterl_ctx *c, *n;
 
-    if (conn_handle->cache_size < MAX_CACHE_SIZE && ++ncalls != 0)
+    if (conn_handle->cache_size < MAX_CACHE_SIZE)
         return 0;
 
     now = cpu_clock_ticks();
@@ -264,7 +263,15 @@ __ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
         }
         c = STAILQ_NEXT(c, entries);
     }
+#ifdef DEBUG
+    uint32_t sz = 0;
+    struct wterl_ctx *f;
+    STAILQ_FOREACH(f, &conn_handle->cache, entries) {
+	sz++;
+    }
+#endif
     enif_mutex_unlock(conn_handle->cache_mutex);
+    DPRINTF("cache_find: [%u:%u] %s (%p)", sz, conn_handle->cache_size, c ? "hit" : "miss", c);
     return c;
 }
 
@@ -282,7 +289,15 @@ __ctx_cache_add(WterlConnHandle *conn_handle, struct wterl_ctx *c)
     c->tstamp = cpu_clock_ticks();
     STAILQ_INSERT_TAIL(&conn_handle->cache, c, entries);
     conn_handle->cache_size += 1;
+#ifdef DEBUG
+    uint32_t sz = 0;
+    struct wterl_ctx *f;
+    STAILQ_FOREACH(f, &conn_handle->cache, entries) {
+	sz++;
+    }
+#endif
     enif_mutex_unlock(conn_handle->cache_mutex);
+    DPRINTF("cache_add: [%u:%u] (%p)", sz, conn_handle->cache_size, c);
 }
 
 static inline char *

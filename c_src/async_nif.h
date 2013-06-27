@@ -320,6 +320,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       if (!fifo_q_full(reqs, q->reqs)) {
           await = __stat_mean_log2(async_nif->qwait_stat);
           await_inthisq = __stat_mean_log2(q->qwait_stat);
+	  //DPRINTF("q:%d %f/%f", qid, await_inthisq, await);
           if (await_inthisq > await) {
               enif_mutex_unlock(q->reqs_mutex);
               qid = (qid + 1) % async_nif->num_queues;

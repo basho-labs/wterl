@@ -604,7 +604,7 @@ insert_delete_test() ->
 %%		 lists:sort([crypto:sha(<<X>>) || X <- lists:seq(1, 2000)])).
 
 many_open_tables_test_() ->
-    {timeout, 60,
+    {timeout, 120,
      fun() ->
 	     ConnOpts = [{create,true},{cache_size,"100MB"},{session_max, 8192}],
 	     DataDir = ?TEST_DATA_DIR,

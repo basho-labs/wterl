@@ -99,40 +99,27 @@ __stat_mean_log2(struct stat *s)
 uint64_t
 __stat_tick(struct stat *s)
 {
-    duration_t *d;
     uint64_t t;
 
     if (!s)
 	return 0.0;
 
-    d = (duration_t*)erl_drv_tsd_get(s->duration_key);
-    if (!d) {
-	if ((d = enif_alloc(sizeof(duration_t))) == NULL)
-	    return 0;
-	memset(d, 0, sizeof(duration_t));
-	erl_drv_tsd_set(s->duration_key, d);
-    }
-    t = ts(d->unit);
-    d->then = t;
+    t = ts(s->d.unit);
+    s->d.then = t;
     return t;
 }
 
 void
 __stat_reset(struct stat *s)
 {
-    duration_t *d;
-
     if (!s)
 	return;
 
-    s->min = ~0;
-    s->max = 0;
     s->h = 0;
+    s->d.unit = ns;
+    s->d.then = 0;
     memset(s->histogram, 0, sizeof(uint64_t) * 64);
     memset(s->samples, 0, sizeof(uint64_t) * s->num_samples);
-    d = (duration_t*)erl_drv_tsd_get(s->duration_key);
-    if (d)
-	d->then = 0;
 }
 
 uint64_t
@@ -146,10 +133,7 @@ __stat_tock(struct stat *s)
     if (!s)
 	return 0.0;
 
-    d = (duration_t*)erl_drv_tsd_get(s->duration_key);
-    if (!d)
-	return 0;
-
+    d = &s->d;
     now = ts(d->unit);
     elapsed = now - d->then;
     i = s->h;
@@ -160,7 +144,7 @@ __stat_tock(struct stat *s)
     }
     s->h = (s->h + 1) % s->num_samples;
     s->samples[i] = elapsed;
-    if (elapsed < s->min)
+    if (elapsed != 0 && elapsed < s->min)
 	s->min = elapsed;
     if (elapsed > s->max)
 	s->max = elapsed;
@@ -255,6 +239,6 @@ __stat_init(uint32_t n)
     s->mean = 0.0;
     s->h = 0;
     s->num_samples = n;
-    erl_drv_tsd_key_create(NULL, &(s->duration_key));
+    s->d.unit = ns;
     return s;
 }
