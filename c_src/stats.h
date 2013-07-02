@@ -30,7 +30,6 @@ extern "C" {
 #define STAT_DEF(name) struct stat *name ## _stat;
 
 struct stat {
-    ErlNifMutex *mutex;
     duration_t d;
     uint32_t h, n, num_samples;
     uint64_t min, max;

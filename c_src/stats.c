@@ -66,7 +66,6 @@ __stat_mean(struct stat *s)
     if (!s)
         return 0.0;
 
-    enif_mutex_lock(s->mutex);
     t = s->h;
     h = (s->h + 1) % s->num_samples;
     mean = 0;
@@ -77,7 +76,6 @@ __stat_mean(struct stat *s)
     }
     if (mean > 0)
         mean /= (s->n < s->num_samples ? (double)s->n : (double)s->num_samples);
-    enif_mutex_unlock(s->mutex);
     return mean;
 }
 
@@ -90,12 +88,10 @@ __stat_mean_log2(struct stat *s)
     if (!s)
         return 0.0;
 
-    enif_mutex_lock(s->mutex);
     for (i = 0; i < 64; i++)
         mean += (s->histogram[i] * i);
     if (mean > 0)
         mean /= (s->n < s->num_samples ? s->n : s->num_samples);
-    enif_mutex_unlock(s->mutex);
     return mean;
 }
 
@@ -107,10 +103,8 @@ __stat_tick(struct stat *s)
     if (!s)
         return 0.0;
 
-    enif_mutex_lock(s->mutex);
     t = ts(s->d.unit);
     s->d.then = t;
-    enif_mutex_unlock(s->mutex);
     return t;
 }
 
@@ -120,13 +114,11 @@ __stat_reset(struct stat *s)
     if (!s)
         return;
 
-    enif_mutex_lock(s->mutex);
     s->h = 0;
     s->d.unit = ns;
     s->d.then = 0;
     memset(s->histogram, 0, sizeof(uint64_t) * 64);
     memset(s->samples, 0, sizeof(uint64_t) * s->num_samples);
-    enif_mutex_unlock(s->mutex);
 }
 
 void
@@ -134,13 +126,10 @@ __stat_add(struct stat *s, uint64_t elapsed)
 {
     uint32_t i;
 
-    enif_mutex_lock(s->mutex);
     if (s->n == s->num_samples) {
         s->mean = (s->mean + __stat_mean(s)) / 2.0;
         if (s->n >= 4294967295) {
-            enif_mutex_unlock(s->mutex);
             __stat_reset(s);
-            enif_mutex_lock(s->mutex);
         }
     }
     i = s->h;
@@ -152,7 +141,6 @@ __stat_add(struct stat *s, uint64_t elapsed)
         s->max = elapsed;
     s->histogram[LOG2(elapsed)]++;
     s->n++;
-    enif_mutex_unlock(s->mutex);
 }
 
 void
@@ -172,7 +160,6 @@ __stat_print_histogram(struct stat *s, const char *mod)
     if (!s)
         return;
 
-    enif_mutex_lock(s->mutex);
     m = (s->mean + __stat_mean(s) / 2.0);
 
     fprintf(stderr, "%s:async_nif request latency histogram:\n", mod);
@@ -224,7 +211,6 @@ __stat_print_histogram(struct stat *s, const char *mod)
         fprintf(stderr, "\n");
     }
     fflush(stderr);
-    enif_mutex_unlock(s->mutex);
 }
 
 void
@@ -233,10 +219,7 @@ __stat_free(struct stat *s)
     if (!s)
         return;
 
-    enif_mutex_lock(s->mutex);
     enif_free(s->samples);
-    enif_mutex_unlock(s->mutex);
-    enif_mutex_destroy(s->mutex);
     enif_free(s);
 }
 
@@ -253,6 +236,5 @@ __stat_init(uint32_t n)
     s->h = 0;
     s->num_samples = n;
     s->d.unit = ns;
-    s->mutex = enif_mutex_create(NULL);
     return s;
 }
