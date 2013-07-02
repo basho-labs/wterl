@@ -55,9 +55,15 @@
 
 #define CACHE_LINE_SIZE 64
 
+#define ATOMIC_INCR(_v,_newval)                                         \
+do {                                                                    \
+    __typeof(_v) __val = (_v);                                          \
+    while ( (_newval = CASIO(&(_v),__val,__val+1)) != __val )           \
+        __val = _newval;                                                \
+} while ( 0 )
 #define ATOMIC_ADD_TO(_v,_x)                                            \
 do {                                                                    \
-    int __val = (_v), __newval;                                         \
+    __typeof(_v) __val = (_v), __newval;                                \
     while ( (__newval = CASIO(&(_v),__val,__val+(_x))) != __val )       \
         __val = __newval;                                               \
 } while ( 0 )

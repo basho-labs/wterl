@@ -75,7 +75,7 @@ __stat_mean(struct stat *s)
 	h = (h + 1) % s->num_samples;
     }
     if (mean > 0)
-	mean /= (double)(s->n < s->num_samples ? s->n : s->num_samples);
+	mean /= (s->n < s->num_samples ? (double)s->n : (double)s->num_samples);
     return mean;
 }
 
@@ -83,16 +83,16 @@ double
 __stat_mean_log2(struct stat *s)
 {
     uint32_t i;
-    double mean;
+    double mean = 0.0;
 
     if (!s)
 	return 0.0;
 
-    mean = 0;
     for (i = 0; i < 64; i++)
 	mean += (s->histogram[i] * i);
     if (mean > 0)
-	mean /= (double)s->n;
+	mean /= (s->n < s->num_samples ? s->n : s->num_samples);
+    DPRINTF("n: %u %llu %f", s->n < 64 ? s->n : 64, PRIuint64(s), mean);
     return mean;
 }
 

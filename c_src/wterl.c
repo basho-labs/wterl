@@ -1427,7 +1427,7 @@ ASYNC_NIF_DECL(
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->conn_handle);
-    affinity = __str_hash(0, args->uri, __strlen(args->uri));
+    //affinity = __str_hash(0, args->uri, __strlen(args->uri));
   },
   { // work
 
@@ -1486,7 +1486,7 @@ ASYNC_NIF_DECL(
     }
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     enif_keep_resource((void*)args->conn_handle);
-    affinity = __str_hash(0, args->uri, __strlen(args->uri));
+    //affinity = __str_hash(0, args->uri, __strlen(args->uri));
   },
   { // work
 
@@ -1566,7 +1566,7 @@ ASYNC_NIF_DECL(
     args->key = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[2]);
     args->value = enif_make_copy(ASYNC_NIF_WORK_ENV, argv[3]);
     enif_keep_resource((void*)args->conn_handle);
-    affinity = __str_hash(0, args->uri, __strlen(args->uri));
+    //affinity = __str_hash(0, args->uri, __strlen(args->uri));
   },
   { // work
 
