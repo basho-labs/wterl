@@ -524,7 +524,7 @@ set_event_handler_pid(Pid)
 -define(TEST_DATA_DIR, "test/wterl.basic").
 
 open_test_conn(DataDir) ->
-    open_test_conn(DataDir, [{create,true},{cache_size,"100MB"},{session_max, 8192}]).
+    open_test_conn(DataDir, [{create,true},{cache_size,"1GB"},{session_max, 8192}]).
 open_test_conn(DataDir, OpenConfig) ->
     {ok, CWD} = file:get_cwd(),
     rmdir:path(filename:join([CWD, DataDir])), %?cmd("rm -rf " ++ filename:join([CWD, DataDir])),
@@ -606,7 +606,7 @@ insert_delete_test() ->
 many_open_tables_test_() ->
     {timeout, 120,
      fun() ->
-	     ConnOpts = [{create,true},{cache_size,"100MB"},{session_max, 8192}],
+	     ConnOpts = [{create,true},{cache_size,"1GB"},{session_max, 8192}],
 	     DataDir = ?TEST_DATA_DIR,
 	     KeyGen =
 		 fun(X) ->
@@ -620,19 +620,31 @@ many_open_tables_test_() ->
 		 fun(X) ->
 			 "lsm:" ++ integer_to_list(X)
 		 end,
-	     N = 1000,
+	     NumTables = 16, N = 100,
 	     ConnRef = open_test_conn(DataDir, ConnOpts),
 	     Parent = self(),
-	     [wterl:create(ConnRef, TableNameGen(X), [{checksum, "uncompressed"}]) || X <- lists:seq(0, 128)],
+	     [ok = wterl:create(ConnRef, TableNameGen(X), [{checksum, "uncompressed"}]) || X <- lists:seq(0, NumTables)],
 	     [spawn(fun() ->
 			    TableName = TableNameGen(X),
-			    [wterl:put(ConnRef, TableName, KeyGen(P), ValGen()) || P <- lists:seq(1, N)],
-			    [wterl:get(ConnRef, TableName, KeyGen(P)) || P <- lists:seq(1, N)],
-			    [wterl:delete(ConnRef, TableName, KeyGen(P)) || P <- lists:seq(1, N)],
+			    [case wterl:put(ConnRef, TableName, KeyGen(P), ValGen()) of
+                                 ok -> ok;
+                                 {error, {enoent, _}} -> io:format("put failed, table missing ~p~n", [TableName])
+                             end || P <- lists:seq(1, N)],
+			    [case wterl:get(ConnRef, TableName, KeyGen(P)) of
+                                 {ok, _} -> ok;
+                                 {error, {enoent, _}} -> io:format("get failed, table missing ~p~n", [TableName])
+                             end || P <- lists:seq(1, N)],
+			    [case wterl:delete(ConnRef, TableName, KeyGen(P)) of
+                                 ok -> ok;
+                                 {error, {enoent, _}} -> io:format("delete failed, table missing ~p~n", [TableName])
+                             end || P <- lists:seq(1, N)],
 			    Parent ! done
-		    end) || X <- lists:seq(0, 128)],
-	     [wterl:drop(ConnRef, TableNameGen(X)) || X <- lists:seq(0, 128)],
-	     [receive done -> ok end || _ <- lists:seq(0, 128)],
+		    end) || X <- lists:seq(0, NumTables)],
+	     [receive done -> ok end || _ <- lists:seq(0, NumTables)],
+	     [case wterl:drop(ConnRef, TableNameGen(X)) of
+		  ok -> ok;
+		  {error, {enoent, _}} -> io:format("drop failed, table missing ~p~n", [TableNameGen(X)])
+	      end || X <- lists:seq(0, NumTables)],
 	     ok = wterl:connection_close(ConnRef)
      end}.
 

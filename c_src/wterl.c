@@ -197,10 +197,12 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
     uint64_t now, elapsed;
     struct wterl_ctx *c, *n;
 
+#ifndef DEBUG
     if (conn_handle->cache_size < MAX_CACHE_SIZE)
         return 0;
+#endif
 
-    now = cpu_clock_ticks();
+    now = ts(ns);
 
     // Find the mean of the recorded times that items stayed in cache.
     mean = 0;
@@ -226,7 +228,8 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
         if (log > mean) {
             STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
             DPRINTF("evicting: %llu", PRIuint64(c->sig));
-            c->session->close(c->session, NULL);
+            if (c->session)
+                c->session->close(c->session, NULL);
             enif_free(c);
             num_evicted++;
         }
@@ -256,22 +259,15 @@ __ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
         if (c->sig == sig) { // TODO: hash collisions *will* lead to SEGVs
             // cache hit:
             STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
-            conn_handle->histogram[__log2(cpu_clock_ticks() - c->tstamp)]++;
+            conn_handle->histogram[__log2(ts(ns) - c->tstamp)]++;
             conn_handle->histogram_count++;
             conn_handle->cache_size -= 1;
             break;
         }
         c = STAILQ_NEXT(c, entries);
     }
-#ifdef DEBUG
-    uint32_t sz = 0;
-    struct wterl_ctx *f;
-    STAILQ_FOREACH(f, &conn_handle->cache, entries) {
-	sz++;
-    }
-#endif
     enif_mutex_unlock(conn_handle->cache_mutex);
-    DPRINTF("cache_find: [%u:%u] %s (%p)", sz, conn_handle->cache_size, c ? "hit" : "miss", c);
+    DPRINTF("cache_find: [%u] %s (%p)", conn_handle->cache_size, c ? "hit" : "miss", c);
     return c;
 }
 
@@ -286,14 +282,14 @@ __ctx_cache_add(WterlConnHandle *conn_handle, struct wterl_ctx *c)
 {
     enif_mutex_lock(conn_handle->cache_mutex);
     __ctx_cache_evict(conn_handle);
-    c->tstamp = cpu_clock_ticks();
+    c->tstamp = ts(ns);
     STAILQ_INSERT_TAIL(&conn_handle->cache, c, entries);
     conn_handle->cache_size += 1;
 #ifdef DEBUG
     uint32_t sz = 0;
     struct wterl_ctx *f;
     STAILQ_FOREACH(f, &conn_handle->cache, entries) {
-	sz++;
+        sz++;
     }
 #endif
     enif_mutex_unlock(conn_handle->cache_mutex);
@@ -336,7 +332,7 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
         hash = __str_hash(hash, session_config, l);
         crc = __crc32(crc, session_config, l);
         sig_len += l + 1;
-	DPRINTF("sig/1: %s", session_config);
+        DPRINTF("sig/1: %s", session_config);
     } else {
         sig_len += 1;
     }
@@ -344,7 +340,7 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
         arg = va_arg(ap, const char *);
         if (arg) {
             l = __strlen(arg);
-	    DPRINTF("sig/args: %s", arg);
+            DPRINTF("sig/args: %s", arg);
             hash = __str_hash(hash, arg, l);
             crc = __crc32(crc, arg, l);
             sig_len += l + 1;
@@ -360,21 +356,21 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
 
     c = conn_handle->mru_ctx[worker_id];
     if (CASPO(&conn_handle->mru_ctx[worker_id], c, 0) == c) {
-	if (c == 0) {
-	    // mru miss:
-	    DPRINTF("[%.4u] mru miss, empty", worker_id);
-	    *ctx = NULL;
-	} else {
-	    if (c->sig == sig) {
-		// mru hit:
-		DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
-		*ctx = c;
-	    } else {
-		// mru mismatch:
-		DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
-		__ctx_cache_add(conn_handle, c);
-		*ctx = NULL;
-	    }
+        if (c == 0) {
+            // mru miss:
+            DPRINTF("[%.4u] mru miss, empty", worker_id);
+            *ctx = NULL;
+        } else {
+            if (c->sig == sig) {
+                // mru hit:
+                DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
+                *ctx = c;
+            } else {
+                // mru mismatch:
+                DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
+                __ctx_cache_add(conn_handle, c);
+                *ctx = NULL;
+            }
         }
     }
 
@@ -2309,7 +2305,7 @@ static void __wterl_conn_dtor(ErlNifEnv* env, void* obj)
     WterlConnHandle *conn_handle = (WterlConnHandle *)obj;
 
     if (conn_handle->cache_mutex) {
-        DPRINTF("Non-NULL conn_handle (%p) to free", obj);
+        DPRINTF("conn_handle dtor free'ing (%p)", obj);
         enif_mutex_lock(conn_handle->cache_mutex);
         __close_all_sessions(conn_handle);
         conn_handle->conn->close(conn_handle->conn, NULL);

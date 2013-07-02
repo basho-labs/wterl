@@ -30,6 +30,7 @@ extern "C" {
 #define STAT_DEF(name) struct stat *name ## _stat;
 
 struct stat {
+    ErlNifMutex *mutex;
     duration_t d;
     uint32_t h, n, num_samples;
     uint64_t min, max;
@@ -41,8 +42,9 @@ struct stat {
 extern double __stat_mean(struct stat *s);
 extern double __stat_mean_log2(struct stat *s);
 extern uint64_t __stat_tick(struct stat *s);
+extern void __stat_add(struct stat *s, uint64_t d);
 extern void __stat_reset(struct stat *s);
-extern uint64_t __stat_tock(struct stat *s);
+extern void __stat_tock(struct stat *s);
 extern void __stat_print_histogram(struct stat *s, const char *mod);
 extern void __stat_free(struct stat *s);
 extern struct stat *__stat_init(uint32_t n);
