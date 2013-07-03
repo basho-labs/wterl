@@ -11,9 +11,9 @@ unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as w
 set -e
 
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
-WT_BRANCH=develop
-WT_VSN=""
-WT_DIR=wiredtiger-$WT_BRANCH
+WT_BRANCH=
+WT_REF="tags/1.6.2"
+WT_DIR=wiredtiger-`basename $WT_REF`
 
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
@@ -35,22 +35,21 @@ get_wt ()
     if [ -d $BASEDIR/$WT_DIR/.git ]; then
         (cd $BASEDIR/$WT_DIR && git pull -u) || exit 1
     else
-        if [ "X$WT_VSN" != "X" ]; then
-            git clone ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout $WT_VSN || exit 1)
+        if [ "X$WT_REF" != "X" ]; then
+            git clone ${WT_REPO} ${WT_DIR} && \
+                (cd $BASEDIR/$WT_DIR && git checkout refs/$WT_REF || exit 1)
         else
-            git clone -b ${WT_BRANCH} ${WT_REPO} && \
-                (cd $BASEDIR/wiredtiger && git checkout $WT_BRANCH origin/$WT_BRANCH || exit 1)
+            git clone ${WT_REPO} ${WT_DIR} && \
+                (cd $BASEDIR/$WT_DIR && git checkout -b $WT_BRANCH origin/$WT_BRANCH || exit 1)
         fi
-        mv wiredtiger $WT_DIR || exit 1
     fi
     [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
     (cd $BASEDIR/$WT_DIR
         [ -e $BASEDIR/wiredtiger-build.patch ] && \
             (patch -p1 --forward < $BASEDIR/wiredtiger-build.patch || exit 1 )
         ./autogen.sh || exit 1
-        cd ./build_posix || exit 1
-        [ -e Makefile ] && $MAKE distclean
+        [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
+            (cd $BASEDIR/$WT_DIR/build_posix && $MAKE distclean)
         wt_configure;
     )
 }
@@ -109,7 +108,8 @@ build_snappy ()
 
 case "$1" in
     clean)
-        [ -d $WT_DIR/build_posix ] && (cd $WT_DIR/build_posix; make distclean)
+        [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
+            (cd $BASEDIR/$WT_DIR/build_posix && $MAKE distclean)
         rm -rf system $SNAPPY_DIR
         rm -f ${BASEDIR}/../priv/wt
         rm -f ${BASEDIR}/../priv/libwiredtiger-*.so

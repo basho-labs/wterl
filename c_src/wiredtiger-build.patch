@@ -10,3 +10,97 @@ index 6d78823..2122cf8 100644
 +libwiredtiger_snappy_la_CFLAGS = -I$(src_builddir)/../../system/include
 +libwiredtiger_snappy_la_LDFLAGS = -avoid-version -module -L$(src_builddir)/../../system/lib -Wl,-rpath,lib/wterl-0.9.0/priv:lib/wterl/priv:priv
  libwiredtiger_snappy_la_LIBADD = -lsnappy
+diff --git a/src/support/cksum.c b/src/support/cksum.c
+index 7e9befe..b924db7 100644
+--- a/src/support/cksum.c
++++ b/src/support/cksum.c
+@@ -27,6 +27,13 @@
+ 
+ #include "wt_internal.h"
+ 
++#if defined(__amd64) || defined(__x86_64)
++#define USE_HARDWARE_CRC32 1
++#else
++#undef USE_HARDWARE_CRC32
++#endif
++
++#ifdef USE_HARDWARE_CRC32
+ static const uint32_t g_crc_slicing[8][256] = {
+ #ifdef WORDS_BIGENDIAN
+ 	/*
+@@ -1078,6 +1085,7 @@ static const uint32_t g_crc_slicing[8][256] = {
+ 	}
+ #endif
+ };
++#endif /* USE_HARDWARE_CRC32 */
+ 
+ /*
+  * __wt_cksum --
+@@ -1106,15 +1114,29 @@ __wt_cksum(const void *chunk, size_t len)
+ 	/* Checksum one byte at a time to the first 4B boundary. */
+ 	for (p = chunk;
+ 	    ((uintptr_t)p & (sizeof(uint32_t) - 1)) != 0 &&
+-	    len > 0; ++p, --len)
++	    len > 0; ++p, --len) {
++#ifdef USE_HARDWARE_CRC32
++	    __asm__ __volatile__(
++		".byte 0xF2, 0x0F, 0x38, 0xF0, 0xF1"
++		: "=S" (crc)
++		: "0" (crc), "c" (*p));
++#else
+ #ifdef WORDS_BIGENDIAN
+ 		crc = g_crc_slicing[0][((crc >> 24) ^ *p) & 0xFF] ^ (crc << 8);
+ #else
+ 		crc = g_crc_slicing[0][(crc ^ *p) & 0xFF] ^ (crc >> 8);
+ #endif
++#endif
++	}
+ 
+ 	/* Checksum in 8B chunks. */
+ 	for (nqwords = len / sizeof(uint64_t); nqwords; nqwords--) {
++#ifdef USE_HARDWARE_CRC32
++	    __asm__ __volatile__ (
++		".byte 0xf2, 0x48, 0x0f, 0x38, 0xf0, 0xf1;"
++		: "=S"(crc)
++		: "S"(crc), "c"(*p));
++#else
+ 		crc ^= *(uint32_t *)p;
+ 		p += sizeof(uint32_t);
+ 		next = *(uint32_t *)p;
+@@ -1139,22 +1161,32 @@ __wt_cksum(const void *chunk, size_t len)
+ 			g_crc_slicing[1][(next >> 16) & 0xFF] ^
+ 			g_crc_slicing[0][(next >> 24)];
+ #endif
++#endif
+ 	}
+ 
+ 	/* Checksum trailing bytes one byte at a time. */
++	for (len &= 0x7; len > 0; ++p, len--) {
++#ifdef USE_HARDWARE_CRC32
++	    __asm__ __volatile__(
++		".byte 0xF2, 0x0F, 0x38, 0xF0, 0xF1"
++		: "=S" (crc)
++		: "0" (crc), "c" (*p));
++#else
+ #ifdef WORDS_BIGENDIAN
+-	for (len &= 0x7; len > 0; ++p, len--)
+ 		crc = g_crc_slicing[0][((crc >> 24) ^ *p) & 0xFF] ^ (crc << 8);
++#else
++		crc = g_crc_slicing[0][(crc ^ *p) & 0xFF] ^ (crc >> 8);
++#endif
++#endif
++	}
+ 
++#ifdef WORDS_BIGENDIAN
+ 	/* Do final byte swap to produce a result identical to little endian */
+ 	crc =
+ 		((crc << 24) & 0xFF000000) |
+ 		((crc <<  8) & 0x00FF0000) |
+ 		((crc >>  8) & 0x0000FF00) |
+ 		((crc >> 24) & 0x000000FF);
+-#else
+-	for (len &= 0x7; len > 0; ++p, len--)
+-		crc = g_crc_slicing[0][(crc ^ *p) & 0xFF] ^ (crc >> 8);
+ #endif
+ 	return (~crc);
+ }

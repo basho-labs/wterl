@@ -586,7 +586,7 @@ static kh_inline khint_t __ac_Wang_hash(khint_t key)
   @param  name  Name of the hash table [symbol]
   @param  khval_t  Type of values [type]
 */
-#ifdef __x86_64__ 
+#ifdef __x86_64__
 #define KHASH_MAP_INIT_PTR(name, khval_t)				\
     KHASH_INIT(name, void*, khval_t, 1, kh_ptr64_hash_func, kh_ptr64_hash_equal)
 #else
