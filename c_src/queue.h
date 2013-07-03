@@ -33,6 +33,17 @@
 #ifndef	_DB_QUEUE_H_
 #define	_DB_QUEUE_H_
 
+#ifndef __offsetof
+#define __offsetof(st, m) \
+          ((size_t) ( (char *)&((st *)0)->m - (char *)0 ))
+#endif
+
+#ifndef __containerof
+#define __containerof(ptr, type, member) ({ \
+          const typeof( ((type *)0)->member ) *__mptr = (ptr);              \
+                (type *)( (char *)__mptr - __offsetof(type,member) );})
+#endif
+
 #if defined(__cplusplus)
 extern "C" {
 #endif

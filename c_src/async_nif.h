@@ -44,7 +44,6 @@ struct async_nif_req_entry {
   void *args;
   void (*fn_work)(ErlNifEnv*, ERL_NIF_TERM, ErlNifPid*, unsigned int, void *);
   void (*fn_post)(void *);
-  uint64_t submitted;
   STAILQ_ENTRY(async_nif_req_entry) entries;
 };
 
@@ -109,7 +108,6 @@ struct async_nif_state {
                               enif_make_atom(env, "shutdown"));         \
     }                                                                   \
     req = async_nif_reuse_req(async_nif);                               \
-    req->submitted = ts(ns);                                            \
     if (!req) {                                                         \
         return enif_make_tuple2(env, enif_make_atom(env, "error"),      \
                                 enif_make_atom(env, "eagain"));         \
@@ -415,7 +413,6 @@ async_nif_worker_fn(void *arg)
 
       /* Clean up req for reuse. */
       req->ref = 0;
-      req->submitted = 0;
       req->fn_work = 0;
       req->fn_post = 0;
       enif_free(req->args);

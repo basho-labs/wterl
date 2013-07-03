@@ -29,8 +29,6 @@
 #include "wiredtiger.h"
 
 #include "common.h"
-#include "duration.h"
-#include "stats.h"
 #include "async_nif.h"
 #include "queue.h"
 #include "cas.h"
@@ -44,7 +42,6 @@ typedef char Uri[128];
 
 struct wterl_ctx {
     STAILQ_ENTRY(wterl_ctx) entries;
-    uint64_t tstamp;
     uint64_t sig;
     size_t sig_len;
     WT_SESSION *session;
@@ -64,8 +61,6 @@ typedef struct wterl_conn {
     ErlNifMutex *cache_mutex;
     uint32_t cache_size;
     struct wterl_ctx *mru_ctx[ASYNC_NIF_MAX_WORKERS];
-    uint64_t histogram[64];
-    uint64_t histogram_count;
 } WterlConnHandle;
 
 typedef struct {
@@ -193,47 +188,27 @@ static inline uint32_t __log2(uint64_t x) {
 static int
 __ctx_cache_evict(WterlConnHandle *conn_handle)
 {
-    uint32_t mean, log, num_evicted, i;
-    uint64_t now, elapsed;
-    struct wterl_ctx *c, *n;
+    uint32_t mean, num_evicted;
+    struct wterl_ctx *c;
 
 #ifndef DEBUG
     if (conn_handle->cache_size < MAX_CACHE_SIZE)
         return 0;
 #endif
 
-    now = ts(ns);
+    mean = conn_handle->cache_size / 2;
+    if (mean < 2) return 0;
 
-    // Find the mean of the recorded times that items stayed in cache.
-    mean = 0;
-    for (i = 0; i < 64; i++)
-        mean += (conn_handle->histogram[i] * i);
-    if (mean > 0)
-        mean /= conn_handle->histogram_count;
-
-    // Clear out the histogram and hit/misses
-    memset(conn_handle->histogram, 0, sizeof(uint64_t) * 64);
-    conn_handle->histogram_count = 0;
-
-    /*
-     * Evict anything older than the mean time in queue by removing those
-     * items from the lists stored in the tree.
-     */
     num_evicted = 0;
-    c = STAILQ_FIRST(&conn_handle->cache);
-    while (c != NULL) {
-        n = STAILQ_NEXT(c, entries);
-        elapsed = c->tstamp - now;
-        log = __log2(elapsed);
-        if (log > mean) {
+    while (mean--) {
+	c = STAILQ_LAST(&conn_handle->cache, wterl_ctx, entries);
+	if (c) {
             STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
-            DPRINTF("evicting: %llu", PRIuint64(c->sig));
             if (c->session)
                 c->session->close(c->session, NULL);
             enif_free(c);
             num_evicted++;
         }
-        c = n;
     }
     conn_handle->cache_size -= num_evicted;
     return num_evicted;
@@ -259,8 +234,6 @@ __ctx_cache_find(WterlConnHandle *conn_handle, const uint64_t sig)
         if (c->sig == sig) { // TODO: hash collisions *will* lead to SEGVs
             // cache hit:
             STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
-            conn_handle->histogram[__log2(ts(ns) - c->tstamp)]++;
-            conn_handle->histogram_count++;
             conn_handle->cache_size -= 1;
             break;
         }
@@ -282,7 +255,6 @@ __ctx_cache_add(WterlConnHandle *conn_handle, struct wterl_ctx *c)
 {
     enif_mutex_lock(conn_handle->cache_mutex);
     __ctx_cache_evict(conn_handle);
-    c->tstamp = ts(ns);
     STAILQ_INSERT_TAIL(&conn_handle->cache, c, entries);
     conn_handle->cache_size += 1;
 #ifdef DEBUG
