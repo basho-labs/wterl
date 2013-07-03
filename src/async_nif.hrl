@@ -26,9 +26,6 @@ async_nif_enqueue(R, F, A) ->
     case erlang:apply(F, [R|A]) of
         {ok, enqueued} ->
             receive
-                {R, {error, eagain}} ->
-                    %% Work unit was not queued, try again.
-                    async_nif_enqueue(R, F, A);
                 {R, {error, shutdown}=Error} ->
                     %% Work unit was queued, but not executed.
                     Error;
@@ -38,6 +35,11 @@ async_nif_enqueue(R, F, A) ->
                 {R, Reply} ->
                     Reply
             end;
+        {error, eagain} ->
+            %% Work unit was not queued, try again.
+            async_nif_enqueue(R, F, A);
+        %{error, enomem} ->
+        %{error, shutdown} ->
         Other ->
             Other
     end.

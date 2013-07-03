@@ -84,9 +84,9 @@ repl:
 	@$(ERL) -pa ebin -pz deps/lager/ebin
 
 eunit-repl:
-	@$(ERL) -pa .eunit deps/lager/ebin
+	@$(ERL) erl -pa .eunit -pz deps/lager/ebin
 
-ERL_TOP=		/home/gburd/eng/otp_R15B01
+ERL_TOP=		/home/gburd/repos/otp_R15B01
 CERL=			${ERL_TOP}/bin/cerl
 VALGRIND_MISC_FLAGS=	"--verbose --leak-check=full --show-reachable=yes --trace-children=yes --track-origins=yes --suppressions=${ERL_TOP}/erts/emulator/valgrind/suppress.standard --show-possibly-lost=no --malloc-fill=AB --free-fill=CD"
 
