@@ -31,7 +31,7 @@
 #include "common.h"
 #include "async_nif.h"
 #include "queue.h"
-#include "cas.h"
+#include "atomic.h"
 
 #define MAX_CACHE_SIZE ASYNC_NIF_MAX_WORKERS
 
@@ -325,25 +325,22 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
     va_end(ap);
 
     *ctx = NULL;
-
     c = conn_handle->mru_ctx[worker_id];
-    if (CASPO(&conn_handle->mru_ctx[worker_id], c, 0) == c) {
-        if (c == 0) {
-            // mru miss:
-            DPRINTF("[%.4u] mru miss, empty", worker_id);
-            *ctx = NULL;
-        } else {
-            if (c->sig == sig) {
-                // mru hit:
-                DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
-                *ctx = c;
-            } else {
-                // mru mismatch:
-                DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
-                __ctx_cache_add(conn_handle, c);
-                *ctx = NULL;
-            }
-        }
+    if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0) && c != NULL) {
+	if (c->sig == sig) {
+	    // mru hit:
+	    DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
+	    *ctx = c;
+	} else {
+	    // mru mismatch:
+	    DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
+	    __ctx_cache_add(conn_handle, c);
+	    *ctx = NULL;
+	}
+    } else {
+	// mru miss:
+	DPRINTF("[%.4u] mru miss, empty", worker_id);
+	*ctx = NULL;
     }
 
     if (*ctx == NULL) {
@@ -411,16 +408,12 @@ __release_ctx(WterlConnHandle *conn_handle, uint32_t worker_id, struct wterl_ctx
     }
 
     c = conn_handle->mru_ctx[worker_id];
-    if (CASPO(&conn_handle->mru_ctx[worker_id], c, ctx) != c) {
+    if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, ctx) && c != NULL) {
+	__ctx_cache_add(conn_handle, c);
+	DPRINTF("[%.4u] reset %d cursors, returned ctx to cache", worker_id, ctx->num_cursors);
+    } else {
         __ctx_cache_add(conn_handle, ctx);
         DPRINTF("[%.4u] reset %d cursors, returnd ctx to cache", worker_id, ctx->num_cursors);
-    } else {
-        if (c != NULL) {
-            __ctx_cache_add(conn_handle, c);
-            DPRINTF("[%.4u] reset %d cursors, returned ctx to cache", worker_id, ctx->num_cursors);
-        } else {
-            DPRINTF("[%.4u] reset %d cursors, returned ctx to mru", worker_id, ctx->num_cursors);
-        }
     }
 }
 
@@ -437,14 +430,13 @@ __close_all_sessions(WterlConnHandle *conn_handle)
 
     // clear out the mru
     for (worker_id = 0; worker_id < ASYNC_NIF_MAX_WORKERS; worker_id++) {
-        do {
-            c = conn_handle->mru_ctx[worker_id];
-        } while(CASPO(&conn_handle->mru_ctx[worker_id], c, 0) != c);
-
-        if (c != 0) {
-            c->session->close(c->session, NULL);
-            enif_free(c);
-        }
+        c = conn_handle->mru_ctx[worker_id];
+        if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0)) {
+	    if (c) {
+		c->session->close(c->session, NULL);
+		enif_free(c);
+	    }
+	}
     }
 
     // clear out the cache
@@ -472,8 +464,8 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
 
     // walk the mru first, look for open cursors on matching uri
     for (worker_id = 0; worker_id < ASYNC_NIF_MAX_WORKERS; worker_id++) {
-        c = conn_handle->mru_ctx[worker_id];
-        if (CASPO(&conn_handle->mru_ctx[worker_id], c, 0) == c && c != 0) {
+	c = conn_handle->mru_ctx[worker_id];
+        if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0) && c != 0) {
             cnt = c->num_cursors;
             for(idx = 0; idx < cnt; idx++) {
                 if (!strcmp(c->ci[idx].uri, uri)) {
@@ -481,9 +473,11 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
                     enif_free(c);
                     break;
                 } else {
-                    if (CASPO(&conn_handle->mru_ctx[worker_id], 0, c) != 0) {
+		    // not a match, put it back on the mru
+		    struct wterl_ctx *l = conn_handle->mru_ctx[worker_id];
+                    if (!ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], l, c))
                         __ctx_cache_add(conn_handle, c);
-                    }
+		    if (l) __ctx_cache_add(conn_handle, l);
                 }
             }
         }
