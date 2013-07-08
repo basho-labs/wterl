@@ -109,23 +109,23 @@ start(Partition, Config) ->
             Compressor =
                 case wterl:config_value(block_compressor, Config, "snappy") of
                     {block_compressor, "snappy"}=C -> [C];
-                    {block_compressor, "none"} -> [];
-                    {block_compressor, none} -> [];
-                    {block_compressor, _} -> [{block_compressor, "snappy"}];
-                    _ -> [{block_compressor, "snappy"}]
+                    {block_compressor, "none"} ->     [];
+                    {block_compressor, none} ->       [];
+                    {block_compressor, _} ->          [{block_compressor, "snappy"}];
+                    _ ->                              [{block_compressor, "snappy"}]
                 end,
             TableOpts =
                 case Type of
                     "lsm" ->
                         [{internal_page_max, "128K"},
-                         {leaf_page_max, "128K"},
+                         {leaf_page_max, "16K"},
                          {lsm_chunk_size, "100MB"},
                          {lsm_merge_threads, 2},
-                         {prefix_compression, false},
+                         {prefix_compression, true},
                          {lsm_bloom_newest, true},
                          {lsm_bloom_oldest, true} ,
-                         {lsm_bloom_bit_count, 128},
-                         {lsm_bloom_hash_count, 64},
+                         {lsm_bloom_bit_count, 28},
+                         {lsm_bloom_hash_count, 19},
                          {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
                         ] ++ Compressor;
                     "table" ->
@@ -375,9 +375,9 @@ max_sessions(Config) ->
             undefined -> 1024;
             Size -> Size
         end,
-    Est = 100 * (RingSize * erlang:system_info(schedulers)), % TODO: review/fix this logic
-    case Est > 1000000000  of % Note: WiredTiger uses a signed int for this
-        true -> 1000000000;
+    Est = RingSize * erlang:system_info(schedulers),
+    case Est > 8192  of
+        true -> 8192;
         false -> Est
     end.
 
@@ -562,7 +562,7 @@ size_cache(RequestedSize) ->
                             TotalRAM = proplists:get_value(system_total_memory, Memory),
                             FreeRAM = proplists:get_value(free_memory, Memory),
                             UsedByBeam = proplists:get_value(total, erlang:memory()),
-                            Target = ((TotalRAM - UsedByBeam) div 4),
+                            Target = ((TotalRAM - UsedByBeam) div 3),
                             FirstGuess = (Target - (Target rem (1024 * 1024))),
                             SecondGuess =
                                 case FirstGuess > FreeRAM of
