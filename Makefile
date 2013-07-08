@@ -1,31 +1,72 @@
-TARGET=		wterl
+# Copyright 2012 Erlware, LLC. All Rights Reserved.
+#
+# This file is provided to you under the Apache License,
+# Version 2.0 (the "License"); you may not use this file
+# except in compliance with the License.  You may obtain
+# a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
-REBAR=		./rebar
-#REBAR=		/usr/bin/env rebar
-ERL=		/usr/bin/env erl
-ERLEXEC=	${ERL_ROOTDIR}/lib/erlang/erts-5.9.1/bin/erlexec
-DIALYZER=	/usr/bin/env dialyzer
-ARCHIVETAG?=	$(shell git describe --always --long --tags)
-ARCHIVE?=	$(shell basename $(CURDIR))-$(ARCHIVETAG)
-WT_ARCHIVETAG?=	$(shell cd c_src/wiredtiger-basho; git describe --always --long --tags)
+# Source: https://gist.github.com/ericbmerritt/5706091
 
-.PHONY: plt analyze all deps compile get-deps clean
 
-all: compile
+ERLFLAGS= -pa $(CURDIR)/.eunit -pa $(CURDIR)/ebin -pa $(CURDIR)/deps/*/ebin
 
-archive:
-	@rm -f $(ARCHIVE).tar.gz
-	git archive --format=tar --prefix=$(ARCHIVE)/ $(ARCHIVETAG) | gzip >$(ARCHIVE).tar.gz
+DEPS_PLT=$(CURDIR)/.deps_plt
+DEPS=erts kernel stdlib
 
-deps: get-deps
+# =============================================================================
+# Verify that the programs we need to run are installed on this system
+# =============================================================================
+ERL = $(shell which erl)
 
-get-deps:
+ifeq ($(ERL),)
+$(error "Erlang not available on this system")
+endif
+
+REBAR=$(shell which rebar)
+
+ifeq ($(REBAR),)
+$(error "Rebar not available on this system")
+endif
+
+DIALYZER=$(shell which dialyzer)
+
+ifeq ($(DIALYZER),)
+$(error "Dialyzer not available on this system")
+endif
+
+TYPER=$(shell which typer)
+
+ifeq ($(TYPER),)
+$(error "Typer not available on this system")
+endif
+
+.PHONY: all compile doc clean test dialyzer typer shell distclean pdf \
+  update-deps clean-common-test-data rebuild
+
+all: deps compile test
+
+# =============================================================================
+# Rules to build the system
+# =============================================================================
+
+deps:
 	c_src/build_deps.sh get-deps
-	@$(REBAR) get-deps
+	$(REBAR) get-deps
+	$(REBAR) compile
 
 update-deps:
 	c_src/build_deps.sh update-deps
-	@$(REBAR) update-deps
+	$(REBAR) update-deps
+	$(REBAR) compile
 
 c_src/wterl.o: c_src/async_nif.h
 	touch c_src/wterl.c
@@ -36,70 +77,52 @@ ebin/app_helper.beam:
 	@/bin/false
 
 compile: c_src/wterl.o ebin/app_helper.beam
-	@$(REBAR) compile
+	$(REBAR) skip_deps=true compile
 
-clean:
-	@rm -f $(ARCHIVE).tar.gz
-	@$(REBAR) clean
+doc:
+	$(REBAR) skip_deps=true doc
+
+eunit: compile clean-common-test-data
+	$(REBAR) skip_deps=true eunit
+
+test: compile eunit
+
+$(DEPS_PLT):
+	@echo Building local plt at $(DEPS_PLT)
+	@echo
+	dialyzer --output_plt $(DEPS_PLT) --build_plt \
+	   --apps $(DEPS) -r deps
+
+dialyzer: $(DEPS_PLT)
+	$(DIALYZER) --fullpath --plt $(DEPS_PLT) -Wrace_conditions -r ./ebin
+
+typer:
+	$(TYPER) --plt $(DEPS_PLT) -r ./src
 
 xref:
-	@$(REBAR) xref skip_deps=true
+	$(REBAR) xref skip_deps=true
 
-test: eunit
+# You often want *rebuilt* rebar tests to be available to the shell you have to
+# call eunit (to get the tests rebuilt). However, eunit runs the tests, which
+# probably fails (thats probably why You want them in the shell). This
+# (prefixing the command with "-") runs eunit but tells make to ignore the
+# result.
+shell: deps compile
+	- @$(REBAR) skip_deps=true eunit
+	@$(ERL) $(ERLFLAGS)
 
-eunit: compile-for-eunit
-	@$(REBAR) eunit skip_deps=true
+pdf:
+	pandoc README.md -o README.pdf
 
-eqc: compile-for-eqc
-	@$(REBAR) eqc skip_deps=true
+clean:
+	- c_src/build_deps.sh clean
+	- rm -rf $(CURDIR)/test/*.beam
+	- rm -rf $(CURDIR)/logs
+	- rm -rf $(CURDIR)/ebin
+	$(REBAR) skip_deps=true clean
 
-proper: compile-for-proper
-	@echo "rebar does not implement a 'proper' command" && false
+distclean: clean
+	- rm -rf $(DEPS_PLT)
+	- rm -rvf $(CURDIR)/deps
 
-triq: compile-for-triq
-	@$(REBAR) triq skip_deps=true
-
-compile-for-eunit:
-	@$(REBAR) compile eunit compile_only=true
-
-compile-for-eqc:
-	@$(REBAR) -D QC -D QC_EQC compile eqc compile_only=true
-
-compile-for-eqcmini:
-	@$(REBAR) -D QC -D QC_EQCMINI compile eqc compile_only=true
-
-compile-for-proper:
-	@$(REBAR) -D QC -D QC_PROPER compile eqc compile_only=true
-
-compile-for-triq:
-	@$(REBAR) -D QC -D QC_TRIQ compile triq compile_only=true
-
-plt: compile
-	@$(DIALYZER) --build_plt --output_plt .$(TARGET).plt -pa deps/lager/ebin --apps kernel stdlib
-
-analyze: compile
-	@$(DIALYZER) --plt .$(TARGET).plt -pa deps/lager/ebin ebin
-
-repl:
-	@$(ERL) -pa ebin -pz deps/lager/ebin
-
-eunit-repl:
-	@$(ERL) erl -pa .eunit -pz deps/lager/ebin
-
-ERL_TOP=		/home/gburd/repos/otp_R15B01
-CERL=			${ERL_TOP}/bin/cerl
-VALGRIND_MISC_FLAGS=	"--verbose --leak-check=full --show-reachable=yes --trace-children=yes --track-origins=yes --suppressions=${ERL_TOP}/erts/emulator/valgrind/suppress.standard --show-possibly-lost=no --malloc-fill=AB --free-fill=CD"
-
-helgrind:
-	valgrind --verbose --tool=helgrind \
-	            --leak-check=full
-	            --show-reachable=yes \
-	            --trace-children=yes \
-	            --track-origins=yes \
-	            --suppressions=${ERL_TOP}/erts/emulator/valgrind/suppress.standard \
-	            --show-possibly-lost=no \
-	            --malloc-fill=AB \
-	            --free-fill=CD ${ERLEXEC} -pz deps/lager/ebin -pa ebin -pa .eunit
-
-valgrind:
-	${CERL} -valgrind ${VALGRIND_FLAGS} --log-file=${ROOTDIR}/valgrind_log-beam.smp.%p -- -pz deps/lager/ebin -pa ebin -pa .eunit -exec 'eunit:test(wterl).'
+rebuild: distclean deps compile escript dialyzer test
