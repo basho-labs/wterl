@@ -377,7 +377,11 @@ max_sessions(Config) ->
         end,
     Est = RingSize * erlang:system_info(schedulers),
     case Est > 8192  of
-        true -> 8192;
+        true ->
+	    case Est < 1024 of
+		true -> 1024;
+		false -> 8192
+	    end;
         false -> Est
     end.
 
