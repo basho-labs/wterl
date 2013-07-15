@@ -337,11 +337,9 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   }
 
   /* If the for loop finished then we didn't find a suitable queue for this
-     request, meaning we're backed up so trigger eagain. */
-  if (i == async_nif->num_queues) {
-      enif_mutex_unlock(q->reqs_mutex);
-      return 0;
-  }
+     request, meaning we're backed up so trigger eagain.  Note that if we left
+     the loop in this way we hold no lock. */
+  if (i == async_nif->num_queues) return 0;
 
   /* Add the request to the queue. */
   STAILQ_INSERT_TAIL(&q->reqs, req, entries);
