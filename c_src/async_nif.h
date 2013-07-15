@@ -347,7 +347,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 
   /* We've selected a queue for this new request now check to make sure there are
      enough workers actively processing requests on this queue. */
-  if (q->depth > q->num_workers)
+  if (q->depth > q->num_workers || q->num_workers == 0)
       if (async_nif_start_worker(async_nif, q) == 0) q->num_workers++;
 
   /* Build the term before releasing the lock so as not to race on the use of
