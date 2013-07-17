@@ -12,7 +12,7 @@ set -e
 
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
 WT_BRANCH=
-WT_REF="tags/1.6.2"
+WT_REF="tags/1.6.3"
 WT_DIR=wiredtiger-`basename $WT_REF`
 
 SNAPPY_VSN="1.0.4"
