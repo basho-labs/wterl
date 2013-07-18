@@ -31,7 +31,6 @@
 #include "common.h"
 #include "async_nif.h"
 #include "queue.h"
-#include "cas.h"
 
 #define MAX_CACHE_SIZE ASYNC_NIF_MAX_WORKERS
 
