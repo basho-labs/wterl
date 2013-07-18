@@ -324,29 +324,19 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
     DPRINTF("sig %llu [%u:%u]", PRIuint64(sig), crc, hash);
     va_end(ap);
 
-    *ctx = NULL;
-    c = conn_handle->mru_ctx[worker_id];
-    if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0) && c != NULL) {
-	if (c->sig == sig) {
-	    // mru hit:
-	    DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
-	    *ctx = c;
-	} else {
-	    // mru mismatch:
-	    DPRINTF("[%.4u] mru miss: %llu != %llu", worker_id, PRIuint64(sig), PRIuint64(c->sig));
-	    __ctx_cache_add(conn_handle, c);
-	    *ctx = NULL;
-	}
-    } else {
-	// mru miss:
-	DPRINTF("[%.4u] mru miss, empty", worker_id);
-	*ctx = NULL;
-    }
+    c = NULL;
+    do c = conn_handle->mru_ctx[worker_id];
+    while(c && !ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0));
 
-    if (*ctx == NULL) {
-        // check the cache
-        (*ctx) = __ctx_cache_find(conn_handle, sig);
-        if ((*ctx) == NULL) {
+    if (c && c->sig == sig) {
+	// mru hit:
+	DPRINTF("[%.4u] mru hit: %llu found", worker_id, PRIuint64(sig));
+	*ctx = c;
+    } else {
+	// mru miss: check the cache
+	DPRINTF("[%.4u] mru miss or empty", worker_id);
+        c = __ctx_cache_find(conn_handle, sig);
+        if (c == NULL) {
             // cache miss:
             DPRINTF("[%.4u] cache miss: %llu [cache size: %d]", worker_id, PRIuint64(sig), conn_handle->cache_size);
             WT_CONNECTION *conn = conn_handle->conn;
@@ -356,37 +346,40 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
                 return rc;
             }
             size_t s = sizeof(struct wterl_ctx) + (count * sizeof(struct cursor_info)) + sig_len;
-            *ctx = enif_alloc(s); // TODO: enif_alloc_resource()
-            if (*ctx == NULL) {
+            c = enif_alloc(s); // TODO: enif_alloc_resource()
+            if (c == NULL) {
                 session->close(session, NULL);
                 return ENOMEM;
             }
-            memset(*ctx, 0, s);
-            (*ctx)->sig = sig;
-            (*ctx)->session = session;
-            (*ctx)->sig_len = sig_len;
-            char *p = (char *)(*ctx) + (s - sig_len);
-            (*ctx)->session_config = __copy_str_into(&p, session_config);
-            (*ctx)->num_cursors = count;
+            memset(c, 0, s);
+            c->sig = sig;
+            c->session = session;
+            c->sig_len = sig_len;
+            char *p = (char *)c + (s - sig_len);
+            c->session_config = __copy_str_into(&p, session_config);
+            c->num_cursors = count;
             session_config = arg;
             va_start(ap, session_config);
             for (i = 0; i < count; i++) {
                 const char *uri = va_arg(ap, const char *);
                 const char *config = va_arg(ap, const char *);
                 // TODO: what to do (if anything) when uri or config is NULL?
-                (*ctx)->ci[i].uri = __copy_str_into(&p, uri);
-                (*ctx)->ci[i].config = __copy_str_into(&p, config);
-                rc = session->open_cursor(session, uri, NULL, config, &(*ctx)->ci[i].cursor);
+                c->ci[i].uri = __copy_str_into(&p, uri);
+                c->ci[i].config = __copy_str_into(&p, config);
+                rc = session->open_cursor(session, uri, NULL, config, &c->ci[i].cursor);
                 if (rc != 0) {
-                    enif_free(*ctx);
+                    enif_free(c);
                     session->close(session, NULL); // this will free the cursors too
+		    va_end(ap);
                     return rc;
                 }
             }
             va_end(ap);
+	    *ctx = c;
         } else {
             // cache hit:
             DPRINTF("[%.4u] cache hit: %llu [cache size: %d]", worker_id, PRIuint64(sig), conn_handle->cache_size);
+	    *ctx = c;
         }
     }
     return 0;
@@ -400,21 +393,18 @@ __release_ctx(WterlConnHandle *conn_handle, uint32_t worker_id, struct wterl_ctx
 {
     uint32_t i;
     WT_CURSOR *cursor;
-    struct wterl_ctx *c = NULL;
 
     for (i = 0; i < ctx->num_cursors; i++) {
         cursor = ctx->ci[i].cursor;
         cursor->reset(cursor);
     }
 
-    c = conn_handle->mru_ctx[worker_id];
-    if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, ctx) && c != NULL) {
-	__ctx_cache_add(conn_handle, c);
-	DPRINTF("[%.4u] reset %d cursors, returned ctx to cache", worker_id, ctx->num_cursors);
-    } else {
-        __ctx_cache_add(conn_handle, ctx);
-        DPRINTF("[%.4u] reset %d cursors, returnd ctx to cache", worker_id, ctx->num_cursors);
-    }
+    struct wterl_ctx *c = conn_handle->mru_ctx[worker_id];
+    if (!ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, ctx)) {
+	if (c) __ctx_cache_add(conn_handle, c);
+    } else __ctx_cache_add(conn_handle, ctx);
+
+    DPRINTF("[%.4u] reset %d cursors, returned ctx to cache", worker_id, ctx->num_cursors);
 }
 
 /**
@@ -430,13 +420,9 @@ __close_all_sessions(WterlConnHandle *conn_handle)
 
     // clear out the mru
     for (worker_id = 0; worker_id < ASYNC_NIF_MAX_WORKERS; worker_id++) {
-        c = conn_handle->mru_ctx[worker_id];
-        if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0)) {
-	    if (c) {
-		c->session->close(c->session, NULL);
-		enif_free(c);
-	    }
-	}
+	do c = conn_handle->mru_ctx[worker_id];
+	while(c && !ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0));
+	if (c) { c->session->close(c->session, NULL); enif_free(c); }
     }
 
     // clear out the cache
@@ -464,8 +450,10 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
 
     // walk the mru first, look for open cursors on matching uri
     for (worker_id = 0; worker_id < ASYNC_NIF_MAX_WORKERS; worker_id++) {
-	c = conn_handle->mru_ctx[worker_id];
-        if (ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0) && c != 0) {
+	do c = conn_handle->mru_ctx[worker_id];
+	while(c && !ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], c, 0));
+
+	if (c) {
             cnt = c->num_cursors;
             for(idx = 0; idx < cnt; idx++) {
                 if (!strcmp(c->ci[idx].uri, uri)) {
@@ -473,11 +461,9 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
                     enif_free(c);
                     break;
                 } else {
-		    // not a match, put it back on the mru
-		    struct wterl_ctx *l = conn_handle->mru_ctx[worker_id];
-                    if (!ATOMIC_CAS_FULL(&conn_handle->mru_ctx[worker_id], l, c))
-                        __ctx_cache_add(conn_handle, c);
-		    if (l) __ctx_cache_add(conn_handle, l);
+		    // not a match, be lazy and add it to the cache rather than
+		    // putting it back on the mru
+		    __ctx_cache_add(conn_handle, c);
                 }
             }
         }
@@ -758,7 +744,6 @@ ASYNC_NIF_DECL(
 
     /* Free up the shared sessions and cursors. */
     enif_mutex_lock(args->conn_handle->cache_mutex);
-    __close_all_sessions(args->conn_handle);
     if (args->conn_handle->session_config) {
         enif_free((char *)args->conn_handle->session_config);
         args->conn_handle->session_config = NULL;

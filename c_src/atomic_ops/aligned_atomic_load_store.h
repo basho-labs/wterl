@@ -22,15 +22,15 @@
 
 /*
  * Definitions for architectures on which loads and stores of AO_t are
- * atomic fo all legal alignments.
+ * atomic for all legal alignments.
  */
 
 AO_INLINE AO_t
 AO_load(const volatile AO_t *addr)
 {
   assert(((size_t)addr & (sizeof(AO_t) - 1)) == 0);
-  /* Cast away the volatile for architectures where             */
-  /* volatile adds barrier semantics.                           */
+  /* Cast away the volatile for architectures where volatile adds barrier
+     semantics. */
   return *(AO_t *)addr;
 }
 
