@@ -648,7 +648,7 @@ ASYNC_NIF_DECL(
       } else {
           conn_handle->session_config = NULL;
       }
-      conn_handle->cache_mutex = enif_mutex_create(NULL);
+      conn_handle->cache_mutex = enif_mutex_create("conn_handle");
       enif_mutex_lock(conn_handle->cache_mutex);
       conn_handle->conn = conn;
       ERL_NIF_TERM result = enif_make_resource(env, conn_handle);
@@ -2259,9 +2259,9 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     memset(priv, 0, sizeof(struct wterl_priv_data));
 
     struct wterl_event_handlers *eh = &priv->eh;
-    eh->error_mutex = enif_mutex_create(NULL);
-    eh->message_mutex = enif_mutex_create(NULL);
-    eh->progress_mutex = enif_mutex_create(NULL);
+    eh->error_mutex = enif_mutex_create("error_mutex");
+    eh->message_mutex = enif_mutex_create("message_mutex");
+    eh->progress_mutex = enif_mutex_create("progress_mutex");
 
     /* Process the load_info array of tuples, we expect:
        [{wterl_vsn, "a version string"},
