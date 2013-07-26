@@ -37,7 +37,6 @@ extern "C" {
 #define ASYNC_NIF_WORKER_QUEUE_SIZE 100
 #define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
 
-
 struct async_nif_req_entry {
   ERL_NIF_TERM ref;
   ErlNifEnv *env;
@@ -317,8 +316,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
               avg_depth += async_nif->queues[j].depth;
           }
       }
-      if (avg_depth != 0)
-          avg_depth /= n;
+      if (avg_depth) avg_depth /= n;
 
       /* Lock this queue under consideration, then check for shutdown.  While
          we hold this lock either a) we're shutting down so exit now or b) this
@@ -350,15 +348,13 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 
   /* We've selected a queue for this new request now check to make sure there are
      enough workers actively processing requests on this queue. */
-  retry:
-  if (q->depth > q->num_workers || q->num_workers == 0) {
+  while (q->depth > q->num_workers) {
       switch(async_nif_start_worker(async_nif, q)) {
-      case 0:      __sync_fetch_and_add(&q->num_workers, 1); break;
-      case EAGAIN: goto retry;
       case EINVAL: case ENOMEM: default: return 0;
+      case EAGAIN: continue;
+      case 0:      __sync_fetch_and_add(&q->num_workers, 1); goto done;
       }
-  }
-
+  }done:;
 
   /* Build the term before releasing the lock so as not to race on the use of
      the req pointer (which will soon become invalid in another thread
