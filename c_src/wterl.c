@@ -1336,6 +1336,10 @@ ASYNC_NIF_DECL(
       ASYNC_NIF_REPLY(enif_make_badarg(env));
       return;
     }
+    if (key.size == 0) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
 
     struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
@@ -1392,6 +1396,10 @@ ASYNC_NIF_DECL(
 
     ErlNifBinary key;
     if (!enif_inspect_binary(env, args->key, &key)) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
+    if (key.size == 0) {
       ASYNC_NIF_REPLY(enif_make_badarg(env));
       return;
     }
@@ -1480,6 +1488,10 @@ ASYNC_NIF_DECL(
       ASYNC_NIF_REPLY(enif_make_badarg(env));
       return;
     }
+    if (key.size == 0 || value.size == 0) {
+      ASYNC_NIF_REPLY(enif_make_badarg(env));
+      return;
+    }
 
     struct wterl_ctx *ctx = NULL;
     WT_CURSOR *cursor = NULL;
@@ -1553,7 +1565,7 @@ ASYNC_NIF_DECL(
     }
 
     WT_CURSOR* cursor;
-    rc = session->open_cursor(session, args->uri, NULL, (config.data[0] != 0) ? (char *)config.data : "overwrite,raw", &cursor);
+    rc = session->open_cursor(session, args->uri, NULL, (config.data[0] != 0) ? (char *)config.data : "raw", &cursor);
     if (rc != 0) {
       session->close(session, NULL);
       ASYNC_NIF_REPLY(__strerror_term(env, rc));

@@ -256,6 +256,7 @@ verify_nif(_AsyncRef, _Ref, _Name, _Config) ->
 -spec cursor_open(connection(), string(), config_list()) -> {ok, cursor()} | {error, term()}.
 cursor_open(Ref, Table) ->
     cursor_open(Ref, Table, []).
+
 cursor_open(Ref, Table, Config) ->
     ?ASYNC_NIF_CALL(fun cursor_open_nif/4, [Ref, Table, config_to_bin(Config)]).
 
@@ -484,6 +485,8 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
      {lsm_merge_threads, integer},
      {multiprocess, bool},
      {name, string},
+     {overwrite, bool},
+     {raw, bool},
      {session_max, integer},
      {statistics_log, config},
      {sync, bool},
@@ -872,7 +875,7 @@ various_cursor_test_() ->
                 end},
                {"update an item using a cursor",
                 fun() ->
-                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test", [{overwrite, false}, {raw,true}]),
                         ?assertMatch(ok, cursor_update(Cursor, <<"g">>, <<"goji berries">>)),
                         ?assertMatch(not_found, cursor_update(Cursor, <<"k">>, <<"kumquat">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),
@@ -880,7 +883,7 @@ various_cursor_test_() ->
                 end},
                {"remove an item using a cursor",
                 fun() ->
-                        {ok, Cursor} = cursor_open(ConnRef, "table:test"),
+                        {ok, Cursor} = cursor_open(ConnRef, "table:test", [{overwrite, false}, {raw,true}]),
                         ?assertMatch(ok, cursor_remove(Cursor, <<"g">>)),
                         ?assertMatch(not_found, cursor_remove(Cursor, <<"l">>)),
                         ?assertMatch(ok, cursor_close(Cursor)),

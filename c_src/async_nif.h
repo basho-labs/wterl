@@ -289,7 +289,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* Identify the most appropriate worker for this request. */
   unsigned int i, qid = 0;
   struct async_nif_work_queue *q = NULL;
-  double avg_depth;
+  double avg_depth = 0.0;
 
   /* Either we're choosing a queue based on some affinity/hinted value or we
      need to select the next queue in the rotation and atomically update that
@@ -314,8 +314,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
               avg_depth += async_nif->queues[j].depth;
           }
       }
-      if (avg_depth != 0)
-          avg_depth /= n;
+      if (avg_depth) avg_depth /= n;
 
       /* Lock this queue under consideration, then check for shutdown.  While
          we hold this lock either a) we're shutting down so exit now or b) this
@@ -347,8 +346,13 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 
   /* We've selected a queue for this new request now check to make sure there are
      enough workers actively processing requests on this queue. */
-  if (q->depth > q->num_workers || q->num_workers == 0)
-      if (async_nif_start_worker(async_nif, q) == 0) q->num_workers++;
+  while (q->depth > q->num_workers) {
+      switch(async_nif_start_worker(async_nif, q)) {
+      case EINVAL: case ENOMEM: default: return 0;
+      case EAGAIN: continue;
+      case 0:      q->num_workers++; goto done;
+      }
+  }done:;
 
   /* Build the term before releasing the lock so as not to race on the use of
      the req pointer (which will soon become invalid in another thread
