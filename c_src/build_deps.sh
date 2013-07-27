@@ -1,5 +1,8 @@
 #!/bin/bash
 
+#t=__.$$
+#trap 'rm -f $t; exit 0' 0 1 2 3 13 15
+
 # /bin/sh on Solaris is not a POSIX compatible shell, but /usr/bin/ksh is.
 if [ `uname -s` = 'SunOS' -a "${POSIX_SHELL}" != "true" ]; then
     POSIX_SHELL="true"
@@ -10,14 +13,21 @@ unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as w
 
 set -e
 
+# WiredTiger
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
 #WT_BRANCH=develop
 #WT_DIR=wiredtiger-`basename $WT_BRANCH`
 WT_REF="tags/1.6.3"
 WT_DIR=wiredtiger-`basename $WT_REF`
 
+# Google's Snappy Compression
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
+
+# User-space Read-Copy-Update (RCU)
+URCU_REPO=git://git.lttng.org/userspace-rcu.git
+URCU_REF="tags/v0.7.7"
+URCU_DIR=urcu-`basename $URCU_REF`
 
 [ `basename $PWD` != "c_src" ] && cd c_src
 
@@ -30,6 +40,35 @@ export CFLAGS="$CFLAGS -I $BASEDIR/system/include"
 export CXXFLAGS="$CXXFLAGS -I $BASEDIR/system/include"
 export LDFLAGS="$LDFLAGS -L$BASEDIR/system/lib"
 export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$BASEDIR/system/lib:$LD_LIBRARY_PATH"
+
+get_urcu ()
+{
+    if [ -d $BASEDIR/$URCU_DIR/.git ]; then
+        (cd $BASEDIR/$URCU_DIR && git pull -u) || exit 1
+    else
+        if [ "X$URCU_REF" != "X" ]; then
+            git clone ${URCU_REPO} ${URCU_DIR} && \
+                (cd $BASEDIR/$URCU_DIR && git checkout refs/$URCU_REF || exit 1)
+        else
+            git clone ${URCU_REPO} ${URCU_DIR} && \
+                (cd $BASEDIR/$URCU_DIR && git checkout -b $URCU_BRANCH origin/$URCU_BRANCH || exit 1)
+        fi
+    fi
+    [ -d $BASEDIR/$URCU_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
+    (cd $BASEDIR/$URCU_DIR
+        [ -e $BASEDIR/urcu-build.patch ] && \
+            (patch -p1 --forward < $BASEDIR/urcu-build.patch || exit 1 )
+        autoreconf -fis || exit 1
+        urcu_configure;
+    )
+}
+
+urcu_configure ()
+{
+    (cd $BASEDIR/$URCU_DIR
+	CFLAGS+="-m64 -Os -g -march=native -mtune=native" \
+            ./configure --disable-shared --prefix=${BASEDIR}/system || exit 1)
+}
 
 get_wt ()
 {
@@ -60,6 +99,7 @@ wt_configure ()
     (cd $BASEDIR/$WT_DIR/build_posix
         CFLAGS+=-g ../configure --with-pic \
                      --enable-snappy \
+                     --disable-python --disable-java \
                      --prefix=${BASEDIR}/system || exit 1)
 }
 
@@ -78,6 +118,7 @@ get_deps ()
 {
     get_wt;
     get_snappy;
+    get_urcu;
 }
 
 update_deps ()
@@ -91,6 +132,22 @@ update_deps ()
             fi
         )
     fi
+
+    if [ -d $BASEDIR/$URCU_DIR/.git ]; then
+        (cd $BASEDIR/$URCU_DIR
+            if [ "X$URCU_VSN" == "X" ]; then
+                git pull -u || exit 1
+            else
+                git checkout $URCU_VSN || exit 1
+            fi
+        )
+    fi
+}
+
+build_urcu ()
+{
+    urcu_configure;
+    (cd $BASEDIR/$URCU_DIR && $MAKE -j && $MAKE install)
 }
 
 build_wt ()
@@ -109,8 +166,8 @@ build_snappy ()
 
 case "$1" in
     clean)
-        [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
-            (cd $BASEDIR/$WT_DIR/build_posix && $MAKE distclean)
+        #[ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && (cd $BASEDIR/$WT_DIR/build_posix && $MAKE clean)
+        [ -e $BASEDIR/$URCU_DIR/Makefile ] && (cd $BASEDIR/$URCU_DIR && $MAKE clean)
         rm -rf system $SNAPPY_DIR
         rm -f ${BASEDIR}/../priv/wt
         rm -f ${BASEDIR}/../priv/libwiredtiger-*.so
@@ -131,8 +188,13 @@ case "$1" in
         ;;
 
     *)
+        [ -d $URCU_DIR ] || get_urcu;
         [ -d $WT_DIR ] || get_wt;
         [ -d $SNAPPY_DIR ] || get_snappy;
+
+        # Build URCU
+        [ -d $BASEDIR/$URCU_DIR ] || (echo "Missing URCU source directory" && exit 1)
+        test -f $BASEDIR/system/lib/liburcu-*.a || build_urcu;
 
         # Build Snappy
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
@@ -150,3 +212,5 @@ case "$1" in
         cp -p -P $BASEDIR/system/lib/libsnappy.so* ${BASEDIR}/../priv
         ;;
 esac
+
+exit 0
