@@ -58,7 +58,7 @@ get_wt ()
 wt_configure ()
 {
     (cd $BASEDIR/$WT_DIR/build_posix
-        ../configure --with-pic \
+        CFLAGS+=-g ../configure --with-pic \
                      --enable-snappy \
                      --prefix=${BASEDIR}/system || exit 1)
 }

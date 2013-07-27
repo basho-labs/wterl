@@ -53,6 +53,7 @@ struct async_nif_work_queue {
   unsigned int depth;
   ErlNifMutex *reqs_mutex;
   ErlNifCond *reqs_cnd;
+  struct async_nif_work_queue *next;
   STAILQ_HEAD(reqs, async_nif_req_entry) reqs;
 };
 
@@ -148,14 +149,14 @@ struct async_nif_state {
 
 #define ASYNC_NIF_LOAD(name, priv) do {                                 \
         if (!name##_async_nif_coord)                                    \
-            name##_async_nif_coord = enif_mutex_create(NULL);           \
+            name##_async_nif_coord = enif_mutex_create("nif_coord load"); \
         enif_mutex_lock(name##_async_nif_coord);                        \
         priv = async_nif_load();                                        \
         enif_mutex_unlock(name##_async_nif_coord);                      \
     } while(0);
 #define ASYNC_NIF_UNLOAD(name, env, priv) do {                          \
         if (!name##_async_nif_coord)                                    \
-            name##_async_nif_coord = enif_mutex_create(NULL);           \
+            name##_async_nif_coord = enif_mutex_create("nif_coord unload"); \
         enif_mutex_lock(name##_async_nif_coord);                        \
         async_nif_unload(env, priv);                                    \
         enif_mutex_unlock(name##_async_nif_coord);                      \
@@ -164,7 +165,7 @@ struct async_nif_state {
     } while(0);
 #define ASYNC_NIF_UPGRADE(name, env) do {                               \
         if (!name##_async_nif_coord)                                    \
-            name##_async_nif_coord = enif_mutex_create(NULL);           \
+            name##_async_nif_coord = enif_mutex_create("nif_coord upgrade"); \
         enif_mutex_lock(name##_async_nif_coord);                        \
         async_nif_upgrade(env);                                         \
         enif_mutex_unlock(name##_async_nif_coord);                      \
@@ -197,7 +198,7 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
                 env = enif_alloc_env();
                 if (env) {
                     req->env = env;
-                    async_nif->num_reqs++;
+		    __sync_fetch_and_add(&async_nif->num_reqs, 1);
                 } else {
                     enif_free(req);
                     req = NULL;
@@ -287,7 +288,7 @@ static ERL_NIF_TERM
 async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_entry *req, int hint)
 {
   /* Identify the most appropriate worker for this request. */
-  unsigned int i, qid = 0;
+  unsigned int i, last_qid, qid = 0;
   struct async_nif_work_queue *q = NULL;
   double avg_depth = 0.0;
 
@@ -297,9 +298,10 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   if (hint >= 0) {
       qid = (unsigned int)hint;
   } else {
-      qid = async_nif->next_q;
-      qid = (qid + 1) % async_nif->num_queues;
-      async_nif->next_q = qid;
+      do {
+	  last_qid = __sync_fetch_and_add(&async_nif->next_q, 0);
+	  qid = (last_qid + 1) % async_nif->num_queues;
+      } while (!__sync_bool_compare_and_swap(&async_nif->next_q, last_qid, qid));
   }
 
   /* Now we inspect and interate across the set of queues trying to select one
@@ -342,7 +344,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
 
   /* Add the request to the queue. */
   STAILQ_INSERT_TAIL(&q->reqs, req, entries);
-  q->depth++;
+  __sync_fetch_and_add(&q->depth, 1);
 
   /* We've selected a queue for this new request now check to make sure there are
      enough workers actively processing requests on this queue. */
@@ -350,7 +352,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       switch(async_nif_start_worker(async_nif, q)) {
       case EINVAL: case ENOMEM: default: return 0;
       case EAGAIN: continue;
-      case 0:      q->num_workers++; goto done;
+      case 0:      __sync_fetch_and_add(&q->num_workers, 1); goto done;
       }
   }done:;
 
@@ -377,6 +379,7 @@ async_nif_worker_fn(void *arg)
   struct async_nif_state *async_nif = we->async_nif;
   struct async_nif_work_queue *q = we->q;
   struct async_nif_req_entry *req = NULL;
+  unsigned int tries = async_nif->num_queues;
 
   for(;;) {
     /* Examine the request queue, are there things to be done? */
@@ -390,7 +393,14 @@ async_nif_worker_fn(void *arg)
       /* Queue is empty so we wait for more work to arrive. */
       if (q->num_workers > ASYNC_NIF_MIN_WORKERS) {
           enif_mutex_unlock(q->reqs_mutex);
-          break;
+	  if (tries == 0 && q == we->q) break; // we've tried all queues, thread exit
+	  else {
+	      tries--;
+	      __sync_fetch_and_add(&q->num_workers, -1);
+	      q = q->next;
+	      __sync_fetch_and_add(&q->num_workers, 1);
+	      continue; // try another queue
+	  }
       } else {
           enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
           goto check_again_for_work;
@@ -400,7 +410,7 @@ async_nif_worker_fn(void *arg)
          reqs_mutex lock.  Take the request off the queue. */
       req = STAILQ_FIRST(&q->reqs);
       STAILQ_REMOVE(&q->reqs, req, async_nif_req_entry, entries);
-      q->depth--;
+      __sync_fetch_and_add(&q->depth, -1);
 
       /* Ensure that there is at least one other worker thread watching this
          queue. */
@@ -426,7 +436,7 @@ async_nif_worker_fn(void *arg)
   enif_mutex_lock(async_nif->we_mutex);
   SLIST_INSERT_HEAD(&async_nif->we_joining, we, entries);
   enif_mutex_unlock(async_nif->we_mutex);
-  q->num_workers--;
+  __sync_fetch_and_add(&q->num_workers, -1);
   enif_thread_exit(0);
   return 0;
 }
@@ -558,15 +568,16 @@ async_nif_load()
   async_nif->next_q = 0;
   async_nif->shutdown = 0;
   STAILQ_INIT(&async_nif->recycled_reqs);
-  async_nif->recycled_req_mutex = enif_mutex_create(NULL);
-  async_nif->we_mutex = enif_mutex_create(NULL);
+  async_nif->recycled_req_mutex = enif_mutex_create("recycled_req");
+  async_nif->we_mutex = enif_mutex_create("we");
   SLIST_INIT(&async_nif->we_joining);
 
   for (i = 0; i < async_nif->num_queues; i++) {
       struct async_nif_work_queue *q = &async_nif->queues[i];
       STAILQ_INIT(&q->reqs);
-      q->reqs_mutex = enif_mutex_create(NULL);
-      q->reqs_cnd = enif_cond_create(NULL);
+      q->reqs_mutex = enif_mutex_create("reqs");
+      q->reqs_cnd = enif_cond_create("reqs");
+      q->next = &async_nif->queues[(i + 1) % num_queues];
   }
   return async_nif;
 }
