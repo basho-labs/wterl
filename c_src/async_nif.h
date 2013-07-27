@@ -290,7 +290,7 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* Identify the most appropriate worker for this request. */
   unsigned int i, last_qid, qid = 0;
   struct async_nif_work_queue *q = NULL;
-  double avg_depth;
+  double avg_depth = 0.0;
 
   /* Either we're choosing a queue based on some affinity/hinted value or we
      need to select the next queue in the rotation and atomically update that
