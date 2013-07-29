@@ -66,8 +66,9 @@ get_urcu ()
 urcu_configure ()
 {
     (cd $BASEDIR/$URCU_DIR
-	CFLAGS+="-m64 -Os -g -march=native -mtune=native" \
-            ./configure --disable-shared --prefix=${BASEDIR}/system || exit 1)
+	LDFLAGS+="-Wl,-rpath,lib/urcu-v0.7.7/priv:lib/urcu/priv:priv" \
+	CFLAGS+="-m64 -Os -g -march=native -mtune=native -fPIC" \
+            ./configure --prefix=${BASEDIR}/system || exit 1)
 }
 
 get_wt ()
@@ -194,7 +195,7 @@ case "$1" in
 
         # Build URCU
         [ -d $BASEDIR/$URCU_DIR ] || (echo "Missing URCU source directory" && exit 1)
-        test -f $BASEDIR/system/lib/liburcu-*.a || build_urcu;
+        test -f $BASEDIR/system/lib/liburcu.a || build_urcu;
 
         # Build Snappy
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
@@ -210,6 +211,8 @@ case "$1" in
         cp -p -P $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libwiredtiger_snappy.so* ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/lib/libsnappy.so* ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/liburcu.so* ${BASEDIR}/../priv
+        cp -p -P $BASEDIR/system/lib/liburcu-*.so* ${BASEDIR}/../priv
         ;;
 esac
 
