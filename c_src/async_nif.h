@@ -393,13 +393,15 @@ async_nif_worker_fn(void *arg)
       /* Queue is empty so we wait for more work to arrive. */
       if (q->num_workers > ASYNC_NIF_MIN_WORKERS) {
           enif_mutex_unlock(q->reqs_mutex);
-	  if (tries == 0 && q == we->q) break; // we've tried all queues, thread exit
-	  else {
+	  if (tries == 0 && q == we->q) {
+	      tries = async_nif->num_queues;
+	      continue;
+	  } else {
 	      tries--;
 	      __sync_fetch_and_add(&q->num_workers, -1);
 	      q = q->next;
 	      __sync_fetch_and_add(&q->num_workers, 1);
-	      continue; // try another queue
+	      continue; // try next queue
 	  }
       } else {
           enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
@@ -554,6 +556,7 @@ async_nif_load()
       if (num_queues < 2)
           num_queues = 2;
   }
+  num_queues *= 32;
 
   /* Init our portion of priv_data's module-specific state. */
   async_nif = enif_alloc(sizeof(struct async_nif_state) +
