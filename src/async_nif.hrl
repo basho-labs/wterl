@@ -23,6 +23,7 @@
 
 -spec async_nif_enqueue(reference(), function(), [term()]) -> term() | {error, term()}.
 async_nif_enqueue(R, F, A) ->
+    R = erlang:make_ref(),
     case erlang:apply(F, [R|A]) of
         {ok, enqueued} ->
             receive
@@ -44,4 +45,4 @@ async_nif_enqueue(R, F, A) ->
             Other
     end.
 
--define(ASYNC_NIF_CALL(Fun, Args), async_nif_enqueue(erlang:make_ref(), Fun, Args)).
+-define(ASYNC_NIF_CALL(Fun, Args), async_nif_enqueue(Fun, Args)).
