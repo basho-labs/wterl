@@ -21,28 +21,22 @@
 %%
 %% -------------------------------------------------------------------
 
--spec async_nif_enqueue(reference(), function(), [term()]) -> term() | {error, term()}.
-async_nif_enqueue(R, F, A) ->
-    R = erlang:make_ref(),
-    case erlang:apply(F, [R|A]) of
-        {ok, enqueued} ->
-            receive
-                {R, {error, shutdown}=Error} ->
-                    %% Work unit was queued, but not executed.
-                    Error;
-                {R, {error, _Reason}=Error} ->
-                    %% Work unit returned an error.
-                    Error;
-                {R, Reply} ->
-                    Reply
-            end;
-        {error, eagain} ->
-            %% Work unit was not queued, try again.
-            async_nif_enqueue(R, F, A);
-        %{error, enomem} ->
-        %{error, shutdown} ->
-        Other ->
-            Other
-    end.
-
--define(ASYNC_NIF_CALL(Fun, Args), async_nif_enqueue(Fun, Args)).
+-define(ASYNC_NIF_CALL(Fun, Args),
+        begin
+            NIFRef = erlang:make_ref(),
+            case erlang:apply(Fun, [NIFRef|Args]) of
+                {ok, enqueued} ->
+                    receive
+                        {NIFRef, {error, shutdown}=Error} ->
+                            %% Work unit was queued, but not executed.
+                            Error;
+                        {NIFRef, {error, _Reason}=Error} ->
+                            %% Work unit returned an error.
+                            Error;
+                        {NIFRef, Reply} ->
+                            Reply
+                    end;
+                Other ->
+                    Other
+            end
+        end).
