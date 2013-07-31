@@ -340,26 +340,23 @@ is_empty(#state{connection=Connection, table=Table}) ->
 
 %% @doc Get the status information for this wterl backend
 -spec status(state()) -> [{atom(), term()}].
-status(_) ->
-    [].
-
-%% status(#state{connection=Connection, table=Table}) ->
-%%     case wterl:cursor_open(Connection, Table) of
-%%         {ok, Cursor} ->
-%% 	    TheStats =
-%% 		case fetch_status(Cursor) of
-%% 		    {ok, Stats} ->
-%% 			Stats;
-%% 		    {error, {eperm, _}} -> % TODO: review/fix this logic
-%% 			{ok, []};
-%% 		    _ ->
-%% 			{ok, []}
-%% 		end,
-%% 	    wterl:cursor_close(Cursor),
-%% 	    TheStats;
-%%         {error, Reason2} ->
-%%             {error, Reason2}
-%%     end.
+status(#state{connection=Connection, table=Table}) ->
+    case wterl:cursor_open(Connection, Table) of
+        {ok, Cursor} ->
+	    TheStats =
+		case fetch_status(Cursor) of
+		    {ok, Stats} ->
+			Stats;
+		    {error, {eperm, _}} -> % TODO: review/fix this logic
+			{ok, []};
+		    _ ->
+			{ok, []}
+		end,
+	    wterl:cursor_close(Cursor),
+	    TheStats;
+        {error, Reason2} ->
+            {error, Reason2}
+    end.
 
 %% @doc Register an asynchronous callback
 -spec callback(reference(), any(), state()) -> {ok, state()}.
@@ -546,15 +543,15 @@ from_index_key(LKey) ->
 
 %% @private
 %% Return all status from wterl statistics cursor
-%% fetch_status(Cursor) ->
-%%    {ok, fetch_status(Cursor, wterl:cursor_next_value(Cursor), [])}.
-%% fetch_status(_Cursor, {error, _}, Acc) ->
-%%     lists:reverse(Acc);
-%% fetch_status(_Cursor, not_found, Acc) ->
-%%     lists:reverse(Acc);
-%% fetch_status(Cursor, {ok, Stat}, Acc) ->
-%%     [What,Val|_] = [binary_to_list(B) || B <- binary:split(Stat, [<<0>>], [global])],
-%%     fetch_status(Cursor, wterl:cursor_next_value(Cursor), [{What,Val}|Acc]).
+fetch_status(Cursor) ->
+   {ok, fetch_status(Cursor, wterl:cursor_next_value(Cursor), [])}.
+fetch_status(_Cursor, {error, _}, Acc) ->
+    lists:reverse(Acc);
+fetch_status(_Cursor, not_found, Acc) ->
+    lists:reverse(Acc);
+fetch_status(Cursor, {ok, Stat}, Acc) ->
+    [What,Val|_] = [binary_to_list(B) || B <- binary:split(Stat, [<<0>>], [global])],
+    fetch_status(Cursor, wterl:cursor_next_value(Cursor), [{What,Val}|Acc]).
 
 size_cache(RequestedSize) ->
     Size =

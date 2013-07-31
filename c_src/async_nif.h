@@ -198,7 +198,7 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
                 env = enif_alloc_env();
                 if (env) {
                     req->env = env;
-		    __sync_fetch_and_add(&async_nif->num_reqs, 1);
+                    __sync_fetch_and_add(&async_nif->num_reqs, 1);
                 } else {
                     enif_free(req);
                     req = NULL;
@@ -299,8 +299,8 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
       qid = (unsigned int)hint;
   } else {
       do {
-	  last_qid = __sync_fetch_and_add(&async_nif->next_q, 0);
-	  qid = (last_qid + 1) % async_nif->num_queues;
+          last_qid = __sync_fetch_and_add(&async_nif->next_q, 0);
+          qid = (last_qid + 1) % async_nif->num_queues;
       } while (!__sync_bool_compare_and_swap(&async_nif->next_q, last_qid, qid));
   }
 
@@ -393,16 +393,14 @@ async_nif_worker_fn(void *arg)
       /* Queue is empty so we wait for more work to arrive. */
       if (q->num_workers > ASYNC_NIF_MIN_WORKERS) {
           enif_mutex_unlock(q->reqs_mutex);
-	  if (tries == 0 && q == we->q) {
-	      tries = async_nif->num_queues;
-	      continue;
-	  } else {
-	      tries--;
-	      __sync_fetch_and_add(&q->num_workers, -1);
-	      q = q->next;
-	      __sync_fetch_and_add(&q->num_workers, 1);
-	      continue; // try next queue
-	  }
+          if (tries == 0 && q == we->q) break; // we've tried all queues, thread exit
+          else {
+              tries--;
+              __sync_fetch_and_add(&q->num_workers, -1);
+              q = q->next;
+              __sync_fetch_and_add(&q->num_workers, 1);
+              continue; // try next queue
+          }
       } else {
           enif_cond_wait(q->reqs_cnd, q->reqs_mutex);
           goto check_again_for_work;
