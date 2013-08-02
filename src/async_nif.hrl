@@ -22,9 +22,9 @@
 %% -------------------------------------------------------------------
 
 -define(ASYNC_NIF_CALL(Fun, Args),
-	F = fun(F, A, T) ->
+	F = fun(F, T) ->
 		    R = erlang:make_ref(),
-		    case erlang:apply(F, [R|A]) of
+		    case erlang:apply(F, [R|Args]) of
 			{ok, enqueued} ->
 			    receive
 				{R, {error, shutdown}=Error} ->
@@ -39,9 +39,9 @@
 			{error, eagain} ->
 			    SleepyTime = min(30, (T+1)*2),
 			    timer:sleep(SleepyTime),
-			    F(F, A, SleepyTime);
+			    F(F, SleepyTime);
 			Other ->
 			    Other
 		    end
 	    end,
-	F(Fun, Args, 0)).
+	F(Fun, 0)).
