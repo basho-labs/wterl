@@ -1,0 +1,23 @@
+diff --git a/urcu/rculfhash.h b/urcu/rculfhash.h
+index 23bd1ce..98e00b4 100644
+--- a/urcu/rculfhash.h
++++ b/urcu/rculfhash.h
+@@ -31,6 +31,10 @@
+ #include <urcu-call-rcu.h>
+ #include <urcu-flavor.h>
+
++#ifndef UNUSED
++#define UNUSED(v) ((void)(v))
++#endif
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -92,6 +96,7 @@ typedef int (*cds_lfht_match_fct)(struct cds_lfht_node *node, const void *key);
+ static inline
+ void cds_lfht_node_init(struct cds_lfht_node *node)
+ {
++    UNUSED(node);
+ }
+
+ /*
