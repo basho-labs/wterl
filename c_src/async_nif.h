@@ -34,7 +34,7 @@ extern "C" {
 
 #define ASYNC_NIF_MAX_WORKERS 1024
 #define ASYNC_NIF_MIN_WORKERS 2
-#define ASYNC_NIF_WORKER_QUEUE_SIZE 256
+#define ASYNC_NIF_WORKER_QUEUE_SIZE 8192
 #define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
 
 struct async_nif_req_entry {
@@ -111,7 +111,7 @@ struct async_nif_state {
     req = async_nif_reuse_req(async_nif);                               \
     if (!req) {                                                         \
         return enif_make_tuple2(env, enif_make_atom(env, "error"),      \
-                                enif_make_atom(env, "eagain"));         \
+                                enif_make_atom(env, "enomem"));         \
     }                                                                   \
     new_env = req->env;                                                 \
     DPRINTF("async_nif: calling \"%s\"", __func__);                     \
@@ -359,8 +359,11 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* Build the term before releasing the lock so as not to race on the use of
      the req pointer (which will soon become invalid in another thread
      performing the request). */
+  double pct_full = (double)avg_depth / (double)ASYNC_NIF_WORKER_QUEUE_SIZE;
   ERL_NIF_TERM reply = enif_make_tuple2(req->env, enif_make_atom(req->env, "ok"),
-                                        enif_make_atom(req->env, "enqueued"));
+					enif_make_tuple2(req->env,
+							 enif_make_atom(req->env, "enqueued"),
+							 enif_make_double(req->env, pct_full)));
   enif_cond_signal(q->reqs_cnd);
   enif_mutex_unlock(q->reqs_mutex);
   return reply;
