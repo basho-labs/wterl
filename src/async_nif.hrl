@@ -22,20 +22,28 @@
 %% -------------------------------------------------------------------
 
 -define(ASYNC_NIF_CALL(Fun, Args),
-	R = erlang:make_ref(),
-	case erlang:apply(Fun, [R|Args]) of
-	    {ok, {enqueued, PercentFull}} ->
-		erlang:bump_reductions(erlang:trunc(2000 * PercentFull)),
-		receive
-		    {R, {error, shutdown}=Error} ->
-			%% Work unit was queued, but not executed.
-			Error;
-		    {R, {error, _Reason}=Error} ->
-			%% Work unit returned an error.
-			Error;
-		    {R, Reply} ->
-			Reply
-		end;
-	    Other ->
-		Other
-	end).
+	F = fun(F, A) ->
+		    R = erlang:make_ref(),
+		    case erlang:apply(F, [R|A]) of
+			{ok, {enqueued, PctBusy}} ->
+			    case PctBusy of
+				0.0 -> ok;
+				_   -> erlang:bump_reductions(erlang:trunc(2000 * PctBusy))
+			    end,
+			    receive
+				{R, {error, shutdown}=Error} ->
+				    %% Work unit was queued, but not executed.
+				    Error;
+				{R, {error, _Reason}=Error} ->
+				    %% Work unit returned an error.
+				    Error;
+				{R, Reply} ->
+				    Reply
+			    end;
+			{error, eagain} ->
+			    F(F, A);
+			Other ->
+			    Other
+		    end
+	    end,
+	F(Fun, Args)).
