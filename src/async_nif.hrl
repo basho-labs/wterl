@@ -22,13 +22,15 @@
 %% -------------------------------------------------------------------
 
 -define(ASYNC_NIF_CALL(Fun, Args),
-	F = fun(F, A) ->
+	F = fun(F) ->
 		    R = erlang:make_ref(),
-		    case erlang:apply(F, [R|A]) of
+		    case erlang:apply(Fun, [R|Args]) of
 			{ok, {enqueued, PctBusy}} ->
-			    case PctBusy of
-				0.0 -> ok;
-				_   -> erlang:bump_reductions(erlang:trunc(2000 * PctBusy))
+			    if
+				PctBusy > 0.25 andalso PctBusy =< 1.0 ->
+				    erlang:bump_reductions(erlang:trunc(2000 * PctBusy));
+			       true ->
+				    ok
 			    end,
 			    receive
 				{R, {error, shutdown}=Error} ->
@@ -41,9 +43,9 @@
 				    Reply
 			    end;
 			{error, eagain} ->
-			    F(F, A);
+			    F(F);
 			Other ->
 			    Other
 		    end
 	    end,
-	F(Fun, Args)).
+	F(F)).
