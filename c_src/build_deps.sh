@@ -13,7 +13,7 @@ set -e
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
 #WT_BRANCH=develop
 #WT_DIR=wiredtiger-`basename $WT_BRANCH`
-WT_REF="tags/1.6.3"
+WT_REF="tags/1.6.4"
 WT_DIR=wiredtiger-`basename $WT_REF`
 
 SNAPPY_VSN="1.0.4"
@@ -76,8 +76,8 @@ get_snappy ()
 
 get_deps ()
 {
-    get_wt;
     get_snappy;
+    get_wt;
 }
 
 update_deps ()
@@ -110,7 +110,7 @@ build_snappy ()
 case "$1" in
     clean)
         [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
-            (cd $BASEDIR/$WT_DIR/build_posix && $MAKE distclean)
+            (cd $BASEDIR/$WT_DIR/build_posix && $MAKE clean)
         rm -rf system $SNAPPY_DIR
         rm -f ${BASEDIR}/../priv/wt
         rm -f ${BASEDIR}/../priv/libwiredtiger-*.so
@@ -131,14 +131,13 @@ case "$1" in
         ;;
 
     *)
-        [ -d $WT_DIR ] || get_wt;
-        [ -d $SNAPPY_DIR ] || get_snappy;
-
         # Build Snappy
+        [ -d $SNAPPY_DIR ] || get_snappy;
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
         test -f $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
 
         # Build WiredTiger
+        [ -d $WT_DIR ] || get_wt;
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
         test -f $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
              -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so || build_wt;
