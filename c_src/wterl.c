@@ -204,7 +204,7 @@ __ctx_cache_evict(WterlConnHandle *conn_handle)
             STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
             if (c->session)
                 c->session->close(c->session, NULL);
-            enif_free(c);
+            free(c);
             num_evicted++;
         }
     }
@@ -333,7 +333,7 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
 	int rc = conn->open_session(conn, NULL, session_config, &session);
 	if (rc != 0) return rc;
 	size_t s = sizeof(struct wterl_ctx) + (count * sizeof(struct cursor_info)) + sig_len;
-	c = enif_alloc(s); // TODO: enif_alloc_resource()
+	c = malloc(s); // TODO: enif_alloc_resource()
 	if (c == NULL) {
 	    session->close(session, NULL);
 	    return ENOMEM;
@@ -355,7 +355,7 @@ __retain_ctx(WterlConnHandle *conn_handle, uint32_t worker_id,
 	    c->ci[i].config = __copy_str_into(&p, config);
 	    rc = session->open_cursor(session, uri, NULL, config, &c->ci[i].cursor);
 	    if (rc != 0) {
-		enif_free(c);
+		free(c);
 		session->close(session, NULL); // this will free the cursors too
 		va_end(ap);
 		return rc;
@@ -405,7 +405,7 @@ __close_all_sessions(WterlConnHandle *conn_handle)
         STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
         conn_handle->cache_size -= 1;
         c->session->close(c->session, NULL);
-        enif_free(c);
+        free(c);
         c = n;
     }
 }
@@ -431,7 +431,7 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
                 STAILQ_REMOVE(&conn_handle->cache, c, wterl_ctx, entries);
                 conn_handle->cache_size -= 1;
                 c->session->close(c->session, NULL);
-                enif_free(c);
+                free(c);
                 break;
             }
         }
@@ -637,7 +637,7 @@ ASYNC_NIF_DECL(
           return;
       }
       if (session_config.size > 1) {
-          char *sc = enif_alloc(session_config.size);
+          char *sc = malloc(session_config.size);
           if (!sc) {
               enif_release_resource(conn_handle);
               ASYNC_NIF_REPLY(__strerror_term(env, ENOMEM));
@@ -698,7 +698,7 @@ ASYNC_NIF_DECL(
     enif_mutex_lock(args->conn_handle->cache_mutex);
     __close_all_sessions(args->conn_handle);
     if (args->conn_handle->session_config) {
-        enif_free((char *)args->conn_handle->session_config);
+        free((char *)args->conn_handle->session_config);
         args->conn_handle->session_config = NULL;
     }
     WT_CONNECTION* conn = args->conn_handle->conn;
@@ -2265,7 +2265,7 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     ATOM_WIREDTIGER_VSN = enif_make_atom(env, "wiredtiger_vsn");
     ATOM_MSG_PID = enif_make_atom(env, "message_pid");
 
-    struct wterl_priv_data *priv = enif_alloc(sizeof(struct wterl_priv_data));
+    struct wterl_priv_data *priv = malloc(sizeof(struct wterl_priv_data));
     if (!priv)
         return ENOMEM;
     memset(priv, 0, sizeof(struct wterl_priv_data));
@@ -2293,10 +2293,10 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 
     /* Note: !!! the first element of our priv_data struct *must* be the
        pointer to the async_nif's private data which we set here. */
-    ASYNC_NIF_LOAD(wterl, priv->async_nif_priv);
+    ASYNC_NIF_LOAD(wterl, env, priv->async_nif_priv);
     if (!priv->async_nif_priv) {
         memset(priv, 0, sizeof(struct wterl_priv_data));
-        enif_free(priv);
+        free(priv);
         return ENOMEM;
     }
     *priv_data = priv;
@@ -2342,7 +2342,7 @@ on_unload(ErlNifEnv *env, void *priv_data)
         enif_free_env(eh->msg_env_progress);
 
     memset(priv, 0, sizeof(struct wterl_priv_data));
-    enif_free(priv);
+    free(priv);
 
     priv_data = NULL;
 }

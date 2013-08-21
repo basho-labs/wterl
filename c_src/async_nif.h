@@ -37,11 +37,19 @@ extern "C" {
 
 #define ASYNC_NIF_MAX_WORKERS 1024
 #define ASYNC_NIF_MIN_WORKERS 2
-#define ASYNC_NIF_WORKER_QUEUE_SIZE 100
+#define ASYNC_NIF_WORKER_QUEUE_SIZE 8192
 #define ASYNC_NIF_MAX_QUEUED_REQS ASYNC_NIF_WORKER_QUEUE_SIZE * ASYNC_NIF_MAX_WORKERS
 
 static DEFINE_URCU_TLS(unsigned long long, nr_enqueues);
 static DEFINE_URCU_TLS(unsigned long long, nr_dequeues);
+
+/* Atoms (initialized in on_load) */
+static ERL_NIF_TERM ATOM_EAGAIN;
+static ERL_NIF_TERM ATOM_ENOMEM;
+static ERL_NIF_TERM ATOM_ENQUEUED;
+static ERL_NIF_TERM ATOM_ERROR;
+static ERL_NIF_TERM ATOM_OK;
+static ERL_NIF_TERM ATOM_SHUTDOWN;
 
 struct async_nif_req_entry {
   ERL_NIF_TERM ref;
@@ -58,6 +66,7 @@ struct async_nif_work_queue {
   unsigned int depth;
   struct cds_lfq_queue_rcu req_queue;
   struct async_nif_work_queue *next;
+  STAILQ_HEAD(reqs, async_nif_req_entry) reqs;
 };
 
 struct async_nif_worker_entry {
@@ -106,25 +115,20 @@ struct async_nif_state {
     argc -= 1;                                                          \
     /* Note: !!! this assumes that the first element of priv_data is ours */ \
     struct async_nif_state *async_nif = *(struct async_nif_state**)enif_priv_data(env); \
-    if (uatomic_read(&async_nif->shutdown)) {                           \
-      return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
-                              enif_make_atom(env, "shutdown"));         \
-    }                                                                   \
+    if (async_nif->shutdown)						\
+	return enif_make_tuple2(env, ATOM_ERROR, ATOM_SHUTDOWN);	\
     req = async_nif_reuse_req(async_nif);                               \
-    if (!req) {                                                         \
-        return enif_make_tuple2(env, enif_make_atom(env, "error"),      \
-                                enif_make_atom(env, "eagain"));         \
-    }                                                                   \
+    if (!req)								\
+        return enif_make_tuple2(env, ATOM_ERROR, ATOM_ENOMEM);		\
     new_env = req->env;                                                 \
     DPRINTF("async_nif: calling \"%s\"", __func__);                     \
     do pre_block while(0);                                              \
     DPRINTF("async_nif: returned from \"%s\"", __func__);               \
-    copy_of_args = (struct decl##_args *)enif_alloc(sizeof(struct decl##_args)); \
+    copy_of_args = (struct decl ## _args *)malloc(sizeof(struct decl ## _args)); \
     if (!copy_of_args) {                                                \
       fn_post_##decl (args);                                            \
       async_nif_recycle_req(req, async_nif);                            \
-      return enif_make_tuple2(env, enif_make_atom(env, "error"),        \
-                              enif_make_atom(env, "enomem"));           \
+      return enif_make_tuple2(env, ATOM_ERROR, ATOM_ENOMEM);		\
     }                                                                   \
     memcpy(copy_of_args, args, sizeof(struct decl##_args));             \
     req->ref = enif_make_copy(new_env, argv_in[0]);                     \
@@ -139,9 +143,8 @@ struct async_nif_state {
     if (!reply) {                                                      \
       fn_post_##decl (args);                                           \
       async_nif_recycle_req(req, async_nif);                           \
-      enif_free(copy_of_args);                                         \
-      return enif_make_tuple2(env, enif_make_atom(env, "error"),       \
-                              enif_make_atom(env, "eagain"));          \
+      free(copy_of_args);					       \
+      return enif_make_tuple2(env, ATOM_ERROR, ATOM_EAGAIN);	       \
     }                                                                  \
     return reply;                                                      \
   }
@@ -149,11 +152,11 @@ struct async_nif_state {
 #define ASYNC_NIF_INIT(name)                                            \
         static ErlNifMutex *name##_async_nif_coord = NULL;
 
-#define ASYNC_NIF_LOAD(name, priv) do {                                 \
+#define ASYNC_NIF_LOAD(name, env, priv) do {				\
         if (!name##_async_nif_coord)                                    \
             name##_async_nif_coord = enif_mutex_create("nif_coord load"); \
         enif_mutex_lock(name##_async_nif_coord);                        \
-        priv = async_nif_load();                                        \
+        priv = async_nif_load(env);					\
         enif_mutex_unlock(name##_async_nif_coord);                      \
     } while(0);
 #define ASYNC_NIF_UNLOAD(name, env, priv) do {                          \
@@ -206,7 +209,7 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
         return req;
     } else {
         if (uatomic_read(&async_nif->num_reqs) < ASYNC_NIF_MAX_QUEUED_REQS) {
-            req = enif_alloc(sizeof(struct async_nif_req_entry));
+            req = malloc(sizeof(struct async_nif_req_entry));
             if (req) {
                 memset(req, 0, sizeof(struct async_nif_req_entry));
                 env = enif_alloc_env();
@@ -214,11 +217,10 @@ async_nif_reuse_req(struct async_nif_state *async_nif)
                     req->env = env;
                     uatomic_inc(&async_nif->num_reqs);
                 } else {
-                    enif_free(req);
+                    free(req);
                     req = NULL;
                 }
             }
-            return req;
         }
     }
     return req;
@@ -240,7 +242,7 @@ async_nif_recycle_req(struct async_nif_req_entry *req, struct async_nif_state *a
        3) keep a pointer to the env so we can reset it in the req */
     ErlNifEnv *env = req->env;
     enif_clear_env(req->env);
-    if (req->args) enif_free(req->args);
+    if (req->args) free(req->args);
     memset(req, 0, sizeof(struct async_nif_req_entry));
     req->env = env;
 
@@ -275,7 +277,7 @@ async_nif_start_worker(struct async_nif_state *async_nif, struct async_nif_work_
       if (worker) {
           void *exit_value = 0; /* We ignore the thread_join's exit value. */
           enif_thread_join(worker->tid, &exit_value);
-          enif_free(worker);
+          free(worker);
           uatomic_dec(&async_nif->num_active_workers);
       } else
           break;
@@ -284,7 +286,7 @@ async_nif_start_worker(struct async_nif_state *async_nif, struct async_nif_work_
   if (uatomic_read(&async_nif->num_active_workers) >= ASYNC_NIF_MAX_WORKERS)
       return EAGAIN;
 
-  worker = enif_alloc(sizeof(struct async_nif_worker_entry));
+  worker = malloc(sizeof(struct async_nif_worker_entry));
   if (!worker) return ENOMEM;
   memset(worker, 0, sizeof(struct async_nif_worker_entry));
   worker->worker_id = uatomic_add_return(&async_nif->num_active_workers, 1);
@@ -369,8 +371,10 @@ async_nif_enqueue_req(struct async_nif_state* async_nif, struct async_nif_req_en
   /* Build the term before releasing the lock so as not to race on the use of
      the req pointer (which will soon become invalid in another thread
      performing the request). */
-  ERL_NIF_TERM reply = enif_make_tuple2(req->env, enif_make_atom(req->env, "ok"),
-                                        enif_make_atom(req->env, "enqueued"));
+  double pct_full = (double)avg_depth / (double)ASYNC_NIF_WORKER_QUEUE_SIZE;
+  ERL_NIF_TERM reply = enif_make_tuple2(req->env, ATOM_OK,
+					enif_make_tuple2(req->env, ATOM_ENQUEUED,
+							 enif_make_double(req->env, pct_full)));
   return reply;
 }
 
@@ -450,7 +454,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
       if (worker) {
           void *exit_value = 0; /* We ignore the thread_join's exit value. */
           enif_thread_join(worker->tid, &exit_value);
-          enif_free(worker);
+          free(worker);
           uatomic_dec(&async_nif->num_active_workers);
       }
   }
@@ -467,13 +471,11 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
               struct async_nif_req_entry *req;
               req = caa_container_of(node, struct async_nif_req_entry, queue_entry);
               enif_clear_env(req->env);
-              enif_send(NULL, &req->pid, req->env,
-                    enif_make_tuple2(req->env, enif_make_atom(req->env, "error"),
-                                     enif_make_atom(req->env, "shutdown")));
+              enif_send(NULL, &req->pid, req->env, enif_make_tuple2(req->env, ATOM_ERROR, ATOM_SHUTDOWN));
               req->fn_post(req->args);
-              enif_free(req->args);
-              enif_free_env(req->env);
-              enif_free(req);
+              free(req->args);
+              free_env(req->env);
+              free(req);
           }
       } while(node);
       cds_lfq_destroy_rcu(&q->req_queue); // TODO(gburd): check return val
@@ -485,19 +487,21 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
       if (node) {
           struct async_nif_req_entry *req;
           req = caa_container_of(node, struct async_nif_req_entry, queue_entry);
-          enif_free_env(req->env);
-          enif_free(req);
+          free_env(req->env);
+          free(req->args);
+          free(req);
+          req = n;
       }
   } while(node);
   cds_lfq_destroy_rcu(&async_nif->recycled_req_queue);  // TODO(gburd): check return val
 
   memset(async_nif, 0, sizeof(struct async_nif_state) + (sizeof(struct async_nif_work_queue) * async_nif->num_queues));
   free_all_cpu_call_rcu_data();
-  enif_free(async_nif);
+  free(async_nif);
 }
 
 static void *
-async_nif_load()
+async_nif_load(ErlNifEnv *env)
 {
   static int has_init = 0;
   unsigned int i, num_queues;
@@ -507,6 +511,14 @@ async_nif_load()
   /* Don't init more than once. */
   if (has_init) return 0;
   else has_init = 1;
+
+  /* Init some static references to commonly used atoms. */
+  ATOM_EAGAIN = enif_make_atom(env, "eagain");
+  ATOM_ENOMEM = enif_make_atom(env, "enomem");
+  ATOM_ENQUEUED = enif_make_atom(env, "enqueued");
+  ATOM_ERROR = enif_make_atom(env, "error");
+  ATOM_OK = enif_make_atom(env, "ok");
+  ATOM_SHUTDOWN = enif_make_atom(env, "shutdown");
 
   /* Init the RCU library. */
   rcu_init();
@@ -529,8 +541,8 @@ async_nif_load()
   }
 
   /* Init our portion of priv_data's module-specific state. */
-  async_nif = enif_alloc(sizeof(struct async_nif_state) +
-                         sizeof(struct async_nif_work_queue) * num_queues);
+  async_nif = malloc(sizeof(struct async_nif_state) +
+		     sizeof(struct async_nif_work_queue) * num_queues);
   if (!async_nif)
       return NULL;
   memset(async_nif, 0, sizeof(struct async_nif_state) +

@@ -544,7 +544,7 @@ from_index_key(LKey) ->
 %% @private
 %% Return all status from wterl statistics cursor
 fetch_status(Cursor) ->
-    {ok, fetch_status(Cursor, wterl:cursor_next_value(Cursor), [])}.
+   {ok, fetch_status(Cursor, wterl:cursor_next_value(Cursor), [])}.
 fetch_status(_Cursor, {error, _}, Acc) ->
     lists:reverse(Acc);
 fetch_status(_Cursor, not_found, Acc) ->

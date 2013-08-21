@@ -613,7 +613,7 @@ many_open_tables_test_() ->
 	     DataDir = ?TEST_DATA_DIR,
 	     KeyGen =
 		 fun(X) ->
-			 crypto:sha(<<X>>)
+			 crypto:hash(sha, <<X>>)
 		 end,
 	     ValGen =
 		 fun() ->

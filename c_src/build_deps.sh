@@ -17,7 +17,7 @@ set -e
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
 #WT_BRANCH=develop
 #WT_DIR=wiredtiger-`basename $WT_BRANCH`
-WT_REF="tags/1.6.3"
+WT_REF="tags/1.6.4"
 WT_DIR=wiredtiger-`basename $WT_REF`
 
 # Google's Snappy Compression
@@ -167,7 +167,8 @@ build_snappy ()
 
 case "$1" in
     clean)
-        #[ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && (cd $BASEDIR/$WT_DIR/build_posix && $MAKE clean)
+        [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
+            (cd $BASEDIR/$WT_DIR/build_posix && $MAKE clean)
         [ -e $BASEDIR/$URCU_DIR/Makefile ] && (cd $BASEDIR/$URCU_DIR && $MAKE clean)
         rm -rf system $SNAPPY_DIR
         rm -f ${BASEDIR}/../priv/wt
@@ -189,19 +190,18 @@ case "$1" in
         ;;
 
     *)
-        [ -d $URCU_DIR ] || get_urcu;
-        [ -d $WT_DIR ] || get_wt;
-        [ -d $SNAPPY_DIR ] || get_snappy;
-
-        # Build URCU
-        [ -d $BASEDIR/$URCU_DIR ] || (echo "Missing URCU source directory" && exit 1)
-        test -f $BASEDIR/system/lib/liburcu.a || build_urcu;
-
         # Build Snappy
+        [ -d $SNAPPY_DIR ] || get_snappy;
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
         test -f $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
 
+        # Build URCU
+        [ -d $URCU_DIR ] || get_urcu;
+        [ -d $BASEDIR/$URCU_DIR ] || (echo "Missing URCU source directory" && exit 1)
+        test -f $BASEDIR/system/lib/liburcu.a || build_urcu;
+
         # Build WiredTiger
+        [ -d $WT_DIR ] || get_wt;
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
         test -f $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
              -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so || build_wt;

@@ -7,8 +7,8 @@ index 6d78823..2122cf8 100644
  lib_LTLIBRARIES = libwiredtiger_snappy.la
  libwiredtiger_snappy_la_SOURCES = snappy_compress.c
 -libwiredtiger_snappy_la_LDFLAGS = -avoid-version -module
-+libwiredtiger_snappy_la_CFLAGS = -I$(src_builddir)/../../system/include
-+libwiredtiger_snappy_la_LDFLAGS = -avoid-version -module -L$(src_builddir)/../../system/lib -Wl,-rpath,lib/wterl-0.9.0/priv:lib/wterl/priv:priv
++libwiredtiger_snappy_la_CFLAGS = -I$(abs_top_builddir)/../../system/include
++libwiredtiger_snappy_la_LDFLAGS = -avoid-version -module -L$(abs_top_builddir)/../../system/lib -Wl,-rpath,lib/wterl-0.9.0/priv:lib/wterl/priv:priv
  libwiredtiger_snappy_la_LIBADD = -lsnappy
 diff --git a/src/support/cksum.c b/src/support/cksum.c
 index 7e9befe..b924db7 100644
