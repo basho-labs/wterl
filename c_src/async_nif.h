@@ -66,7 +66,6 @@ struct async_nif_work_queue {
   unsigned int depth;
   struct cds_lfq_queue_rcu req_queue;
   struct async_nif_work_queue *next;
-  STAILQ_HEAD(reqs, async_nif_req_entry) reqs;
 };
 
 struct async_nif_worker_entry {
@@ -474,7 +473,7 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
               enif_send(NULL, &req->pid, req->env, enif_make_tuple2(req->env, ATOM_ERROR, ATOM_SHUTDOWN));
               req->fn_post(req->args);
               free(req->args);
-              free_env(req->env);
+              enif_free_env(req->env);
               free(req);
           }
       } while(node);
@@ -482,17 +481,13 @@ async_nif_unload(ErlNifEnv *env, struct async_nif_state *async_nif)
   }
 
   /* Free any req structures sitting unused on the recycle queue. */
-  do {
-      node = cds_lfq_dequeue_rcu(&async_nif->recycled_req_queue);
-      if (node) {
-          struct async_nif_req_entry *req;
-          req = caa_container_of(node, struct async_nif_req_entry, queue_entry);
-          free_env(req->env);
-          free(req->args);
-          free(req);
-          req = n;
-      }
-  } while(node);
+  while ((node = cds_lfq_dequeue_rcu(&async_nif->recycled_req_queue)) != NULL) {
+      struct async_nif_req_entry *req;
+      req = caa_container_of(node, struct async_nif_req_entry, queue_entry);
+      enif_free_env(req->env);
+      free(req->args);
+      free(req);
+  }
   cds_lfq_destroy_rcu(&async_nif->recycled_req_queue);  // TODO(gburd): check return val
 
   memset(async_nif, 0, sizeof(struct async_nif_state) + (sizeof(struct async_nif_work_queue) * async_nif->num_queues));
