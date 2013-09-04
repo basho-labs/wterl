@@ -22,7 +22,7 @@
 %% -------------------------------------------------------------------
 
 -define(ASYNC_NIF_CALL(Fun, Args),
-	F = fun(F) ->
+	F = fun(F, T) ->
 		    R = erlang:make_ref(),
 		    case erlang:apply(Fun, [R|Args]) of
 			{ok, {enqueued, PctBusy}} ->
@@ -43,9 +43,12 @@
 				    Reply
 			    end;
 			{error, eagain} ->
-			    F(F);
+			    case T of
+				3 -> not_found;
+				_ -> F(F, T + 1)
+			    end;
 			Other ->
 			    Other
 		    end
 	    end,
-	F(F)).
+	F(F, 1)).
