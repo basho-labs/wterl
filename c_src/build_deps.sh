@@ -107,6 +107,11 @@ build_snappy ()
     )
 }
 
+install_shared_lib ()
+{
+    cp -p -P $1 ${BASEDIR}/../priv/`basename ${1%.*}.so`
+}
+
 case "$1" in
     clean)
         [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
@@ -131,21 +136,23 @@ case "$1" in
         ;;
 
     *)
+	shopt -s extglob
+	SUFFIXES='@(so|dylib)'
+
         # Build Snappy
         [ -d $SNAPPY_DIR ] || get_snappy;
         [ -d $BASEDIR/$SNAPPY_DIR ] || (echo "Missing Snappy source directory" && exit 1)
-        test -f $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9] || build_snappy;
+        test -f $BASEDIR/system/lib/libsnappy.so.[0-9].[0-9].[0-9].* || build_snappy;
 
         # Build WiredTiger
         [ -d $WT_DIR ] || get_wt;
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
-        test -f $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so \
-             -a -f $BASEDIR/system/lib/libwiredtiger_snappy.so || build_wt;
-
+        test -f  $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].$SUFFIXES -a \
+	    -f $BASEDIR/system/lib/libwiredtiger_snappy.$SUFFIXES || build_wt;
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
         cp -p -P $BASEDIR/system/bin/wt ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].so ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libwiredtiger_snappy.so* ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/lib/libsnappy.so* ${BASEDIR}/../priv
+        install_shared_lib ${BASEDIR}/system/lib/libwiredtiger-[0-9].[0-9].[0-9].$SUFFIXES
+        install_shared_lib ${BASEDIR}/system/lib/libwiredtiger_snappy.$SUFFIXES*
+        install_shared_lib ${BASEDIR}/system/lib/libsnappy.$SUFFIXES*
         ;;
 esac
