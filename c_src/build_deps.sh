@@ -11,10 +11,10 @@ unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as w
 set -e
 
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
-#WT_BRANCH=develop
-#WT_DIR=wiredtiger-`basename $WT_BRANCH`
-WT_REF="tags/1.6.4"
-WT_DIR=wiredtiger-`basename $WT_REF`
+WT_BRANCH=develop
+WT_DIR=wiredtiger-`basename $WT_BRANCH`
+#WT_REF="tags/1.6.4"
+#WT_DIR=wiredtiger-`basename $WT_REF`
 
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
@@ -26,8 +26,7 @@ export BASEDIR="$PWD"
 which gmake 1>/dev/null 2>/dev/null && MAKE=gmake
 MAKE=${MAKE:-make}
 
-export CFLAGS="$CFLAGS -I $BASEDIR/system/include"
-export CXXFLAGS="$CXXFLAGS -I $BASEDIR/system/include"
+export CPPFLAGS="$CPPLAGS -I $BASEDIR/system/include -O3 -mtune=native -march=native"
 export LDFLAGS="$LDFLAGS -L$BASEDIR/system/lib"
 export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$BASEDIR/system/lib:$LD_LIBRARY_PATH"
 
@@ -58,7 +57,7 @@ get_wt ()
 wt_configure ()
 {
     (cd $BASEDIR/$WT_DIR/build_posix
-        CFLAGS+=-g ../configure --with-pic \
+        CFLAGS+=-g $BASEDIR/$WT_DIR/configure --with-pic \
                      --enable-snappy \
                      --prefix=${BASEDIR}/system || exit 1)
 }
@@ -107,11 +106,6 @@ build_snappy ()
     )
 }
 
-install_shared_lib ()
-{
-    cp -p -P $1 ${BASEDIR}/../priv/`basename ${1%.*}.so`
-}
-
 case "$1" in
     clean)
         [ -e $BASEDIR/$WT_DIR/build_posix/Makefile ] && \
@@ -147,12 +141,12 @@ case "$1" in
         # Build WiredTiger
         [ -d $WT_DIR ] || get_wt;
         [ -d $BASEDIR/$WT_DIR ] || (echo "Missing WiredTiger source directory" && exit 1)
-        test -f  $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].$SUFFIXES -a \
-	    -f $BASEDIR/system/lib/libwiredtiger_snappy.$SUFFIXES || build_wt;
+        test -f  $BASEDIR/system/lib/libwiredtiger-[0-9].[0-9].[0-9].${SUFFIXES} -a \
+	    -f $BASEDIR/system/lib/libwiredtiger_snappy.${SUFFIXES} || build_wt;
         [ -d $BASEDIR/../priv ] || mkdir ${BASEDIR}/../priv
-        cp -p -P $BASEDIR/system/bin/wt ${BASEDIR}/../priv
-        install_shared_lib ${BASEDIR}/system/lib/libwiredtiger-[0-9].[0-9].[0-9].$SUFFIXES
-        install_shared_lib ${BASEDIR}/system/lib/libwiredtiger_snappy.$SUFFIXES*
-        install_shared_lib ${BASEDIR}/system/lib/libsnappy.$SUFFIXES*
+	cp -p -P $BASEDIR/system/bin/wt ${BASEDIR}/../priv
+	cp -p -P ${BASEDIR}/system/lib/libwiredtiger-[0-9].[0-9].[0-9].${SUFFIXES} ${BASEDIR}/../priv
+	cp -p -P ${BASEDIR}/system/lib/libwiredtiger_snappy.${SUFFIXES} ${BASEDIR}/../priv
+	cp -p -P ${BASEDIR}/system/lib/libsnappy.${SUFFIXES}* ${BASEDIR}/../priv
         ;;
 esac
