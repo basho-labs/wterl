@@ -341,7 +341,7 @@ is_empty(#state{connection=Connection, table=Table}) ->
 %% @doc Get the status information for this wterl backend
 -spec status(state()) -> [{atom(), term()}].
 status(#state{connection=Connection, table=Table}) ->
-    case wterl:cursor_open(Connection, Table) of
+    case wterl:cursor_open(Connection, "statistics:" ++ Table, [{statistics_fast, true}]) of
         {ok, Cursor} ->
 	    TheStats =
 		case fetch_status(Cursor) of
