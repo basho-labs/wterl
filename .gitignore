@@ -7,6 +7,8 @@ c_src/*.o
 c_src/bzip2-1.0.6
 c_src/snappy-1.0.4
 deps/
-priv/
+priv/wt
+priv/*.so*
+priv/*.dylib*
 log/
 *~
