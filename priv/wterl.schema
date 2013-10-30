@@ -1,0 +1,6 @@
+%%%% This is the WiredTiger section
+
+%% @doc wiredtiger data_root
+{mapping, "wiredtiger.data_root", "wterl.data_root", [
+  {default, "{{platform_data_dir}}/wiredtiger"}
+]}.

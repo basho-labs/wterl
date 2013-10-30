@@ -96,8 +96,8 @@ nif_stub_error(Line) ->
 -spec init() -> ok | {error, any()}.
 init() ->
     erlang:load_nif(filename:join([priv_dir(), atom_to_list(?MODULE)]),
-           [{wterl_vsn, "53307e8"},
-	    {wiredtiger_vsn, "1.6.2-0-g07cb0a5"}]).
+           [{wterl_vsn, "942e51b"},
+	    {wiredtiger_vsn, "1.6.4-275-g9c44420"}]). %% TODO automate these
 
 -spec connection_open(string(), config_list()) -> {ok, connection()} | {error, term()}.
 -spec connection_open(string(), config_list(), config_list()) -> {ok, connection()} | {error, term()}.
@@ -456,6 +456,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
     [{block_compressor, {string, quoted}},
      {cache_size, string},
      {checkpoint, config},
+     {checkpoint_sync, bool},
      {checksum, string},
      {create, bool},
      {direct_io, list},
@@ -489,7 +490,6 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
      {raw, bool},
      {session_max, integer},
      {statistics_log, config},
-     {sync, bool},
      {target, {list, quoted}},
      {to, string},
      {transactional, bool},
