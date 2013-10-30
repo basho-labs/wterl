@@ -440,6 +440,7 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
     return;
 }
 
+
 /**
  * Callback to handle error messages.
  *
@@ -454,13 +455,15 @@ __close_cursors_on(WterlConnHandle *conn_handle, const char *uri)
  *          operation or library failure.
  */
 int
-__wterl_error_handler(WT_EVENT_HANDLER *handler, int error, const char *message)
+__wterl_error_handler(WT_EVENT_HANDLER *handler, WT_SESSION *session,
+    int error, const char *message)
 {
     struct wterl_event_handlers *eh = (struct wterl_event_handlers *)handler;
     ErlNifEnv *msg_env;
     ErlNifPid *to_pid;
     int rc = 0;
 
+    UNUSED(session);
     enif_mutex_lock(eh->error_mutex);
     msg_env = eh->msg_env_error;
     to_pid = &eh->to_pid;
@@ -492,13 +495,14 @@ __wterl_error_handler(WT_EVENT_HANDLER *handler, int error, const char *message)
  *          operation or library failure.
  */
 int
-__wterl_message_handler(WT_EVENT_HANDLER *handler, const char *message)
+__wterl_message_handler(WT_EVENT_HANDLER *handler, WT_SESSION *session, const char *message)
 {
     struct wterl_event_handlers *eh = (struct wterl_event_handlers *)handler;
     ErlNifEnv *msg_env;
     ErlNifPid *to_pid;
     int rc = 0;
 
+    UNUSED(session);
     enif_mutex_lock(eh->message_mutex);
     msg_env = eh->msg_env_message;
     to_pid = &eh->to_pid;
@@ -529,13 +533,14 @@ __wterl_message_handler(WT_EVENT_HANDLER *handler, const char *message)
  *          operation or library failure.
  */
 int
-__wterl_progress_handler(WT_EVENT_HANDLER *handler, const char *operation, uint64_t counter)
+__wterl_progress_handler(WT_EVENT_HANDLER *handler, WT_SESSION *session, const char *operation, uint64_t counter)
 {
     struct wterl_event_handlers *eh = (struct wterl_event_handlers *)handler;
     ErlNifEnv *msg_env;
     ErlNifPid *to_pid;
     int rc = 0;
 
+    UNUSED(session);
     enif_mutex_lock(eh->progress_mutex);
     msg_env = eh->msg_env_progress;
     to_pid = &eh->to_pid;
@@ -2303,7 +2308,7 @@ on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 
     char msg[1024];
     snprintf(msg, 1024, "NIF on_load complete (wterl version: %s, wiredtiger version: %s)", priv->wterl_vsn, priv->wiredtiger_vsn);
-    __wterl_message_handler((WT_EVENT_HANDLER *)&priv->eh, msg);
+    __wterl_message_handler((WT_EVENT_HANDLER *)&priv->eh, NULL, msg);
     return 0;
 }
 
