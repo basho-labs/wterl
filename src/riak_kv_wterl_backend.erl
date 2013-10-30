@@ -410,6 +410,8 @@ establish_connection(Config, Type) ->
                 orddict:from_list(
                   [ wterl:config_value(create, Config, true),
                     wterl:config_value(checkpoint_sync, Config, false),
+                    wterl:config_value(transaction_sync, Config, "none"),
+                    wterl:config_value(log, Config, [{enabled, false}]),
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 600}]), % in seconds
