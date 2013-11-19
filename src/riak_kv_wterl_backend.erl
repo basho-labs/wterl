@@ -405,12 +405,12 @@ establish_connection(Config, Type) ->
 			case LogSetting of
 			    true ->
 				%% Turn checkpoints on if logging is on, checkpoints enable log archival.
-				app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 30}]);  % in seconds
+				app_helper:get_prop_or_env(checkpoint, Config, wterl, {wait, 30});  % in seconds
 			    _ ->
 				[]
 			end;
                     false ->
-                        app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 30}])
+                        app_helper:get_prop_or_env(checkpoint, Config, wterl, {wait, 30})
                 end,
             RequestedCacheSize = app_helper:get_prop_or_env(cache_size, Config, wterl),
             ConnectionOpts =
@@ -419,7 +419,7 @@ establish_connection(Config, Type) ->
                     wterl:config_value(checkpoint_sync, Config, false),
                     wterl:config_value(transaction_sync, Config, "none"),
 		    wterl:config_value(log, Config, [{enabled, LogSetting}]),
-		    wterl:config_value(checkpoint, Config, CheckpointSetting),
+		    wterl:config_value(checkpoint, Config, [CheckpointSetting]),
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 600}]), % in seconds
@@ -430,7 +430,7 @@ establish_connection(Config, Type) ->
                          %"block", "shared_cache", "reconcile", "evict", "lsm",
                          %"fileops", "read", "write", "readserver", "evictserver",
                          %"hazard", "mutex", "ckpt"
-                         ]) ] ++ CheckpointSetting ++ proplists:get_value(wterl, Config, [])), % sec
+                         ]) ] ++ proplists:get_value(wterl, Config, [])), % sec
 
             %% WT Session Options:
             SessionOpts = [{isolation, "snapshot"}],
