@@ -11,10 +11,10 @@ unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as w
 set -e
 
 WT_REPO=http://github.com/wiredtiger/wiredtiger.git
-WT_BRANCH=develop
-WT_DIR=wiredtiger-`basename $WT_BRANCH`
-#WT_REF="tags/1.6.4"
-#WT_DIR=wiredtiger-`basename $WT_REF`
+#WT_BRANCH=develop
+#WT_DIR=wiredtiger-`basename $WT_BRANCH`
+WT_REF="tags/1.6.6"
+WT_DIR=wiredtiger-`basename $WT_REF`
 
 SNAPPY_VSN="1.0.4"
 SNAPPY_DIR=snappy-$SNAPPY_VSN
