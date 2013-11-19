@@ -398,7 +398,7 @@ establish_connection(Config, Type) ->
             ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
 
             %% WT Connection Options:
-	    LogSetting = app_helper:get_prop_or_env(log, Config, wterl, true),
+	    LogSetting = app_helper:get_prop_or_env(log, Config, wterl, false),
             CheckpointSetting =
                 case Type =:= "lsm" of
                     true ->
