@@ -119,6 +119,7 @@ start(Partition, Config) ->
                     "lsm" ->
                         [{internal_page_max, "128K"},
                          {leaf_page_max, "16K"},
+			 {lsm_merge_threads, 2},
                          {lsm_chunk_size, "100MB"},
                          {lsm_bloom_oldest, true} ,
                          {lsm_bloom_bit_count, 28},
@@ -397,13 +398,19 @@ establish_connection(Config, Type) ->
             ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
 
             %% WT Connection Options:
-            %% NOTE: LSM auto-checkpoints, so we don't have too.
+	    LogSetting = app_helper:get_prop_or_env(log, Config, wterl, true),
             CheckpointSetting =
                 case Type =:= "lsm" of
                     true ->
-                        [];
+			case LogSetting of
+			    true ->
+				%% Turn checkpoints on if logging is on, checkpoints enable log archival.
+				app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 30}]);  % in seconds
+			    _ ->
+				[]
+			end;
                     false ->
-                        app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 10}])
+                        app_helper:get_prop_or_env(checkpoint, Config, wterl, [{wait, 30}])
                 end,
             RequestedCacheSize = app_helper:get_prop_or_env(cache_size, Config, wterl),
             ConnectionOpts =
@@ -411,14 +418,15 @@ establish_connection(Config, Type) ->
                   [ wterl:config_value(create, Config, true),
                     wterl:config_value(checkpoint_sync, Config, false),
                     wterl:config_value(transaction_sync, Config, "none"),
-                    wterl:config_value(log, Config, [{enabled, false}]),
+		    wterl:config_value(log, Config, [{enabled, LogSetting}]),
+		    wterl:config_value(checkpoint, Config, CheckpointSetting),
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics_log, Config, [{wait, 600}]), % in seconds
                     wterl:config_value(verbose, Config, [ "salvage", "verify"
                          % Note: for some unknown reason, if you add these additional
                          % verbose flags Erlang SEGV's "size_object: bad tag for 0x80"
-                         % no idea why... yet... you've been warned.
+                         % no idea why... you've been warned.
                          %"block", "shared_cache", "reconcile", "evict", "lsm",
                          %"fileops", "read", "write", "readserver", "evictserver",
                          %"hazard", "mutex", "ckpt"
