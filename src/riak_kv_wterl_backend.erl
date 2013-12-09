@@ -119,12 +119,14 @@ start(Partition, Config) ->
                     "lsm" ->
                         [{internal_page_max, "128K"},
                          {leaf_page_max, "16K"},
-			 {lsm_merge_threads, 2},
-                         {lsm_chunk_size, "100MB"},
-                         {lsm_bloom_oldest, true} ,
-                         {lsm_bloom_bit_count, 28},
-                         {lsm_bloom_hash_count, 19},
-                         {lsm_bloom_config, [{leaf_page_max, "8MB"}]}
+                         {lsm, [
+                             {bloom_config, [{leaf_page_max, "8MB"}]},
+                             {bloom_bit_count, 28},
+                             {bloom_hash_count, 19},
+                             {bloom_oldest, true},
+                             {chunk_size, "100MB"},
+                             {merge_threads, 2}
+                         ]}
                         ] ++ Compressor;
                     "table" ->
                         Compressor
@@ -422,6 +424,7 @@ establish_connection(Config, Type) ->
 		    wterl:config_value(checkpoint, Config, CheckpointSetting),
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
+                    wterl:config_value(statistics, Config, [ "fast", "clear"]),
                     wterl:config_value(statistics_log, Config, [{wait, 600}]), % in seconds
                     wterl:config_value(verbose, Config, [ "salvage", "verify"
                          % Note: for some unknown reason, if you add these additional
