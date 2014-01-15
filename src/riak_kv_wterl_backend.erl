@@ -22,6 +22,7 @@
 
 -module(riak_kv_wterl_backend).
 -behavior(temp_riak_kv_backend).
+-compile([{parse_transform, lager_transform}]).
 
 %% KV Backend API
 -export([api_version/0,
@@ -42,7 +43,7 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--compiel(export_all).
+-compile(export_all).
 -endif.
 
 -define(API_VERSION, 1).
@@ -420,8 +421,9 @@ establish_connection(Config, Type) ->
                   [ wterl:config_value(create, Config, true),
                     wterl:config_value(checkpoint_sync, Config, false),
                     wterl:config_value(transaction_sync, Config, "none"),
-		    wterl:config_value(log, Config, [{enabled, LogSetting}]),
-		    wterl:config_value(checkpoint, Config, CheckpointSetting),
+                    wterl:config_value(log, Config, [{enabled, LogSetting}]),
+                    wterl:config_value(mmap, Config, false),
+                    wterl:config_value(checkpoint, Config, CheckpointSetting),
                     wterl:config_value(session_max, Config, max_sessions(Config)),
                     wterl:config_value(cache_size, Config, size_cache(RequestedCacheSize)),
                     wterl:config_value(statistics, Config, [ "fast", "clear"]),

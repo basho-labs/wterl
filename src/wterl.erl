@@ -485,6 +485,7 @@ config_to_bin([{Key, Value} | Rest], Acc) ->
      {leaf_page_max, string},
      {log, config},
      {lsm, config},
+     {mmap, bool},
      {merge_threads, integer},
      {multiprocess, bool},
      {name, string},
